@@ -1,0 +1,11 @@
+langchain-community>=0.3.24
+langchain>=0.3.25
+langchain-chroma>=0.2.4
+langchain-ollama>=0.3.3
+pydantic>=2.11.5
+ruff>=0.11.11
+chromadb>=1.0.10
+langchain-huggingface>=0.2.0
+transformers>=4.52.3
+accelerate>=1.7.0
+sentence-transformers>=2.2.2

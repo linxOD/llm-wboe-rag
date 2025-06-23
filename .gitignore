@@ -12,4 +12,7 @@ wheels/
 .secret.env
 .ruff_cache/
 =0.1.2
-
+*.txt
+output/
+*.lock
+*.sbatch

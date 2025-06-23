@@ -1,3 +1,4 @@
+# accelerate config file
 compute_environment: LOCAL_MACHINE
 debug: false
 distributed_type: MULTI_GPU

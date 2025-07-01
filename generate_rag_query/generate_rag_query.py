@@ -76,15 +76,30 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
             print(f"Processing document: {doc['keyword']}")
 
             try:
-                self.inputs = doc["context"]
-                if len(self.inputs) > self.max_context_length:
-                    print(f"User Input Context of: {len(self.inputs)} is\
-                        larger than max length of:\
-                            {self.max_context_length} truncating inputs...")
-                    self.inputs = self.inputs[:self.max_context_length]
+                if len(self.inputs) == 0:
+                    self.inputs = doc["context"]
+                else:
+                    self.inputs += doc["context"]
+
             except Exception as e:
                 print(f"Error processing document {doc['keyword']}: {e}")
                 continue
+
+            tokenizer = self.load_llama_cpp_tokenizer(self.inputs)
+            print(tokenizer)
+            tokens = tokenizer.encode(self.inputs)
+            token_count = len(tokens)
+            if token_count > self.max_context_length:
+                print(f"Token count {token_count} exceeds\
+                    max context length {self.max_context_length}.\
+                    Truncating input.")
+                self.inputs = tokenizer.decode(
+                    tokens[:self.max_context_length])
+                self.context_token_length = self.max_context_length
+            else:
+                self.context_token_length = token_count
+            print(f"Input for document {doc['keyword']}:\
+                {self.inputs[:100]}...")
 
             match self.backend:
                 case "ollama":
@@ -126,8 +141,10 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
 if __name__ == "__main__":
     wboe_embeddings = WboeRAGPipeline(
         backend="llama_cpp",
-        hf_model="lmstudio-community/Llama-3.3-70B-Instruct-GGUF",
-        hf_model_fn="Llama-3.3-70B-Instruct-Q4_K_M.gguf",
+        # hf_model="lmstudio-community/Llama-3.3-70B-Instruct-GGUF",
+        # hf_model_fn="Llama-3.3-70B-Instruct-Q4_K_M.gguf",
+        hf_model="bartowski/Llama-3.2-3B-Instruct-GGUF",
+        hf_model_fn="Llama-3.2-3B-Instruct-Q4_0.gguf",
         ollama_model="llama3.2:3b",
         collection_name="wboe_word_embeddings",
         vector_store_filepath_name="chroma_langchain_db_wboe_embeddings",

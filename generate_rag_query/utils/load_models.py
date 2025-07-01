@@ -18,8 +18,10 @@ class WboeLoadModels(BaseModel):
     jwt_token: str = os.getenv("OLLAMA_API_KEY")
     hf_token: str = os.getenv("HUGGINGFACE_API_KEY")
     user_input: list[str] = ["prompt1.txt", "prompt2.txt", "prompt3.txt"]
+    user_input_text: str = ""
     keyword: str = "keusch",
     max_context_length: int = 2048
+    context_token_length: int = 2048
     output_dir: str = "output"
     model: object = None
     tokenizer: object = None
@@ -66,7 +68,7 @@ class WboeLoadModels(BaseModel):
                 "headers": {"Authorization": f"Bearer {self.jwt_token}"},
             },
             # keep_alive=6000,
-            num_ctx=self.max_context_length,
+            num_ctx=self.context_token_length,
             # temperature=0.4,
         )
         return embeddings
@@ -82,9 +84,9 @@ class WboeLoadModels(BaseModel):
         llm = Llama.from_pretrained(
             repo_id=self.hf_model,
             filename=self.hf_model_fn,
-            n_ctx=self.max_context_length,
-            n_batch=self.max_context_length,
-            n_ubatch=self.max_context_length,
+            n_ctx=self.context_token_length,
+            n_batch=2048,
+            n_ubatch=512,
             n_threads=3,
             n_gpu_layers=-1,
             seed=1337,
@@ -110,7 +112,7 @@ class WboeLoadModels(BaseModel):
             sync_client_kwargs={
                 "headers": {"Authorization": f"Bearer {self.jwt_token}"},
             },
-            num_ctx=self.max_context_length,
+            num_ctx=self.context_token_length,
             temperature=0.4,
             top_p=0.9,
             top_k=50,
@@ -118,6 +120,25 @@ class WboeLoadModels(BaseModel):
         )
 
         return llm
+
+    def llama_tokenizer(self):
+        """Loads the LlamaCpp tokenizer."""
+
+        from llama_cpp.llama_tokenizer import LlamaHFTokenizer
+
+        if not self.hf_model:
+            raise ValueError("LlamaCpp model is not specified.")
+
+        tokenizer = LlamaHFTokenizer.from_pretrained(self.hf_model)
+
+        return tokenizer
+
+    def load_llama_cpp_tokenizer(self):
+        """Loads the LlamaCpp tokenizer."""
+
+        tokenizer = self.load_llama_cpp_model()
+
+        return tokenizer
 
     def load_llama_cpp_model(self):
         """Loads the LlamaCpp model."""
@@ -130,11 +151,12 @@ class WboeLoadModels(BaseModel):
         llm = Llama.from_pretrained(
             repo_id=self.hf_model,
             filename=self.hf_model_fn,
-            n_ctx=self.max_context_length,
+            n_ctx=self.context_token_length,
             n_batch=2048,
             n_ubatch=512,
             n_gpu_layers=-1,
             seed=1337,
+            tokenizer=self.llama_tokenizer(),
         )
 
         return llm
@@ -196,7 +218,7 @@ class WboeLoadModels(BaseModel):
             # device_map="auto",  # Use GPU if available
             max_new_tokens=512,
             truncation=True,
-            max_length=self.max_context_length,
+            max_length=self.context_token_length,
             return_full_text=False,
             eos_token_id=self.tokenizer.eos_token_id,
             pad_token_id=self.tokenizer.pad_token_id,
@@ -225,23 +247,30 @@ class WboeLoadModels(BaseModel):
         self.model = None
         self.tokenizer = None
         self.user_input = None
+        self.user_input_text = None
         self.keyword = None
         self.output_dir = None
 
     def generate_ollama(self) -> str:
         """Generates a response using the Ollama LLM."""
 
-        system_prompt = "Du bist ein Lexicograph und ein Experte für\
-            Wortbedeutungen für deutsch bairischen Dialekt."
-
-        context_prompt = f"Verwende ausschließlich diese Daten:\n\n\
-        {self.inputs}\n\n\
-        Antworte auf den folgenden Prompt:"
+        system_message_content = (
+            "Du bist ein Assistent, der auf die Frage des Benutzers antwortet."
+            "Du hast Zugriff auf den Kontext,\
+                der aus einem Vektorstore abgerufen "
+            "wurde. Deine Aufgabe ist es,\
+                die Frage des Benutzers zu beantworten, "
+            "indem du die bereitgestellten Informationen nutzt. "
+            "Du solltest keine Informationen hinzufügen, die nicht im Kontext "
+            "enthalten sind, und du solltest keine Annahmen treffen. "
+            "\n\n"
+            f"{self.inputs}"
+        )
 
         messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "system", "content": context_prompt},
-            {"role": "user", "content": self.user_input}
+            {"role": "system", "content": system_message_content},
+            {"role": "user", "content": (self.user_input_text)},
+            {"role": "assistant", "content": ("")},
         ]
 
         response = self.model.invoke(messages)
@@ -257,8 +286,6 @@ class WboeLoadModels(BaseModel):
 
     def generate_huggingface(self) -> str:
         """Generates a response using the Hugging Face LLM."""
-
-        from langchain_core.messages import SystemMessage
 
         # llama_sepecial_tokens = {
         #     "eot_id": "<|eot_id|>",
@@ -293,12 +320,11 @@ class WboeLoadModels(BaseModel):
 
         conversation_messages = [
             {"role": "system", "content": system_message_content},
-            {"role": "user", "content": (self.user_input)},
+            {"role": "user", "content": (self.user_input_text)},
             {"role": "assistant", "content": ("")},
         ]
 
-        prompt = [SystemMessage(system_message_content)] + \
-            conversation_messages
+        prompt = conversation_messages
 
         # Run
         response = self.pipe.invoke(prompt)
@@ -331,7 +357,7 @@ class WboeLoadModels(BaseModel):
 
         conversation_messages = [
             {"role": "system", "content": system_message_content},
-            {"role": "user", "content": (self.user_input)},
+            {"role": "user", "content": (self.user_input_text)},
             {"role": "assistant", "content": ("")},
         ]
 
@@ -365,12 +391,9 @@ class WboeLoadModels(BaseModel):
             with open(file, "r") as f:
                 text = f.read().strip()
 
-            self.user_input = text
+            self.user_input_text = text
 
             response = self.generate_ollama()
-
-            # use the response as new context
-            self.inputs += response
 
             # print(response)
             fn_prompt = file.split("/")[-1].replace(".txt", "")
@@ -387,6 +410,9 @@ class WboeLoadModels(BaseModel):
             except Exception as e:
                 print(f"Error writing response to file: {e}")
                 print("Response:", response)
+
+            # use the response as new context
+            self.user_input_text += f"\n\n{response}"
 
             sleep(10)  # Sleep to avoid rate limiting
 
@@ -407,12 +433,9 @@ class WboeLoadModels(BaseModel):
             with open(file, "r") as f:
                 text = f.read().strip()
 
-            self.user_input = text
+            self.user_input_text = text
 
             response = self.generate_huggingface()
-
-            # use the response as new context
-            self.inputs += response
 
             # print(response)
             fn_prompt = file.split("/")[-1].replace(".txt", "")
@@ -430,6 +453,9 @@ class WboeLoadModels(BaseModel):
                 print(f"Error writing response to file: {e}")
                 print("Response:", response)
 
+            # use the response as new context
+            self.user_input_text += f"\n\n{response}"
+
             # Clear GPU memory after each file processing
             if torch.cuda.is_available():
                 print("Clearing GPU memory...")
@@ -442,19 +468,14 @@ class WboeLoadModels(BaseModel):
         # Load the LlamaCpp model
         self.model = self.load_llama_cpp_model()
 
-        prompt_files = self.user_input
-
-        for file in prompt_files:
+        for file in self.user_input:
 
             with open(file, "r") as f:
                 text = f.read().strip()
 
-            self.user_input = text
+            self.user_input_text = text
 
             response = self.generate_llama_cpp()
-
-            # use the response as new context
-            self.inputs += response
 
             # print(response)
             fn_prompt = file.split("/")[-1].replace(".txt", "")
@@ -471,6 +492,12 @@ class WboeLoadModels(BaseModel):
             except Exception as e:
                 print(f"Error writing response to file: {e}")
                 print("Response:", response)
+
+            # use the response as new context
+            response_text = response.get("choices",
+                                         [{}])[0].get("message",
+                                                      {}).get("content", "")
+            self.user_input_text += f"\n\n{response_text}"
 
             # Clear GPU memory after each file processing
             if torch.cuda.is_available():

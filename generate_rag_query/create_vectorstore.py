@@ -9,10 +9,12 @@ from langchain_community.document_loaders.text import TextLoader
 # from transformers import AutoTokenizer
 # from langchain.document_loaders import DirectoryLoader
 from pydantic import BaseModel
+from typing import Literal
 
 
 class WboeCreateVectorstore(BaseModel):
 
+    backend: Literal["ollama", "hf_pipeline", "llama_cpp"] = "ollama"
     ollama_model: str = "llama3.2:3b"
     hf_model: str = "meta-llama/Llama-3.3-70B-Instruct"
     collection_name: str = "wboe_word_embeddings"
@@ -24,6 +26,8 @@ class WboeCreateVectorstore(BaseModel):
     keyword: str = "grob"
     output_dir: str = "output"
     vectore_store_filepath_name: str = ""
+    exclude_files: list[str] = ["Fleisch"]
+    include_files: list[str] = ["Gefrette", "kauschen", "Gigel", "kommod"]
 
     def __init__(self, **data):
         super().__init__(**data)
@@ -38,11 +42,11 @@ class WboeCreateVectorstore(BaseModel):
 
     def init_env(self):
 
-        if not self.jwt_token:
+        if not self.jwt_token and self.backend == "ollama":
             raise ValueError("JWT token for Ollama API is not set.\
                 Please set the OLLAMA_API_KEY environment variable.")
 
-        if not self.hf_token:
+        if not self.hf_token and self.backend in ["hf_pipeline", "llama_cpp"]:
             raise ValueError("Hugging Face token is not set.\
                 Please set the HUGGINGFACE_API_KEY environment variable.")
 
@@ -62,9 +66,17 @@ class WboeCreateVectorstore(BaseModel):
         schema = {}
         file_glob = glob(os.path.join(self.documents_path,
                                       f"*.{self.documents_file_type}"))
-        for file in file_glob[:20]:
+        for file in file_glob:
             filename = os.path.basename(file).replace(
                 f".{self.documents_file_type}", "")
+            if (self.exclude_files[0] == "none" and
+                    filename in self.exclude_files):
+                print(f"Excluding file {filename} from processing.")
+                continue
+            if (self.include_files[0] == "all" and
+                    filename not in self.include_files):
+                print(f"Excluding file {filename} for processing.")
+                continue
             file_id = str(uuid4())
             doc = TextLoader(file, encoding="utf-8")
             document = doc.load()
@@ -198,23 +210,33 @@ class WboeCreateVectorstore(BaseModel):
             raise ValueError("Failed to initialize the vector store.")
         self.add_documents_to_vectorstore(vector_store)
 
+    def main(self):
+        if self.backend == "ollama":
+            self.ollama()
+        elif self.backend == "hf_pipeline":
+            self.huggingface()
+        elif self.backend == "llama_cpp":
+            self.llama_cpp()
+
 
 if __name__ == "__main__":
     wboe_embeddings = WboeCreateVectorstore(
+        backend="hf_pipeline",
         ollama_model="llama3.2:3b",
         # hf_model="lmstudio-community/Llama-3.3-70B-Instruct-GGUF",
         hf_model="sentence-transformers/all-mpnet-base-v2",
-	collection_name="wboe_word_embeddings",
+        collection_name="wboe_word_embeddings",
         vectore_store_dir="chroma_langchain_db_wboe_embeddings",
         documents_path="./llm_corpus",
         documents_file_type="txt",
+        exclude_files=["Fleisch"],
+        include_files=["Gefrette", "kauschen", "Gigel", "kommod"],
         jwt_token=os.getenv("OLLAMA_API_KEY"),
         hf_token=os.getenv("HUGGINGFACE_API_KEY"),
         keyword="grob",
         output_dir="output"
     )
-    # wboe_embeddings.ollama()
-    wboe_embeddings.huggingface()
+    wboe_embeddings.main()
     # clear cuda cache
     if torch.cuda.is_available():
         torch.cuda.empty_cache()

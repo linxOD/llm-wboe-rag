@@ -1,4 +1,5 @@
 import os
+import json
 from time import sleep
 from utils.load_models import WboeLoadModels
 from utils.load_vectorestore_documents import WboeLoadVectorstore
@@ -37,20 +38,20 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
 
         super().__init__(**args)
 
-        if not self.hf_model or not self.ollama_model:
-            raise ValueError("Both Hugging Face and Ollama models must be\
-                specified.")
+        if not self.hf_model and self.backend in ["hf_pipeline", "llama_cpp"]:
+            raise ValueError("Hugging Face model must be specified.")
 
-        if not self.ollama_model or not self.hf_model:
-            raise ValueError("Both Ollama and Hugging Face models must be\
-                specified.")
-
-        if not self.jwt_token or not self.hf_token:
-            raise ValueError("Both JWT token for Ollama and Hugging Face token\
-                must be set.")
-
-        if not self.hf_model_fn:
+        if not self.hf_model_fn and self.backend == "llama_cpp":
             raise ValueError("Hugging Face model file name must be specified.")
+
+        if not self.ollama_model and self.backend == "ollama":
+            raise ValueError("Ollama model must be specified.")
+
+        if not self.jwt_token and self.backend == "ollama":
+            raise ValueError("JWT token for Ollama API must be set.")
+
+        if not self.hf_token and self.backend in ["hf_pipeline", "llama_cpp"]:
+            raise ValueError("JWT token for Hugging Face API must be set.")
 
         if not self.collection_name:
             raise ValueError("Collection name for the vector store must be\
@@ -72,34 +73,40 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
     def generate(self):
         """Generates word embeddings using the Ollama model."""
 
+        match self.backend:
+            case "ollama":
+                print("Using Ollama model for word embeddings.")
+
+            case "hf_pipeline":
+                print("Using Hugging Face pipeline for word embeddings.")
+                print(f"Using Hugging Face model: {self.hf_model}")
+                self.load_huggingface_model()
+                print("Hugging Face model loaded successfully.")
+
+            case "llama_cpp":
+                print("loading model for llama_cpp")
+                self.model = self.load_llama_cpp_model()
+                print("Llama CPP model loaded successfully.")
+                sleep(5)
+
         for doc in self.context:
             print(f"Processing document: {doc['keyword']}")
+            self.keyword = doc["keyword"]
+
+            if self.keyword != "Gefrette":
+                print(f"Skipping document {self.keyword}\
+                    as it is not 'Gefrette'.")
+                continue
 
             try:
-                if len(self.inputs) == 0:
-                    self.inputs = doc["context"]
-                else:
-                    self.inputs += doc["context"]
+                self.inputs = doc["context"]
 
             except Exception as e:
                 print(f"Error processing document {doc['keyword']}: {e}")
                 continue
 
-            tokenizer = self.load_llama_cpp_tokenizer(self.inputs)
-            print(tokenizer)
-            tokens = tokenizer.encode(self.inputs)
-            token_count = len(tokens)
-            if token_count > self.max_context_length:
-                print(f"Token count {token_count} exceeds\
-                    max context length {self.max_context_length}.\
-                    Truncating input.")
-                self.inputs = tokenizer.decode(
-                    tokens[:self.max_context_length])
-                self.context_token_length = self.max_context_length
-            else:
-                self.context_token_length = token_count
-            print(f"Input for document {doc['keyword']}:\
-                {self.inputs[:100]}...")
+            # Truncate the input text to fit within the context length
+            self.inputs = self.truncate_text(self.inputs)
 
             match self.backend:
                 case "ollama":
@@ -121,6 +128,19 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
             print(f"Processed document: {doc['keyword']} successfully.")
             sleep(5)
 
+    def save_chat_history(self) -> None:
+        """Saves the chat history to a file."""
+
+        if not self.chat_history:
+            print("No chat history to save.")
+            return
+
+        output_file = os.path.join(self.output_dir, "chat_history.json")
+        with open(output_file, "w") as file:
+            json.dump(self.chat_history, file, indent=4)
+
+        print(f"Chat history saved to {output_file} successfully.")
+
     def main(self) -> None:
         """Main method to run the RAG pipeline."""
 
@@ -134,6 +154,9 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
         self.generate()
         print("RAG pipeline completed successfully.")
 
+        # save chat history to a file
+        self.save_chat_history()
+
         # Unload models and clear up memory
         self.unloading_models_and_clear_up_memory()
 
@@ -141,18 +164,17 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
 if __name__ == "__main__":
     wboe_embeddings = WboeRAGPipeline(
         backend="llama_cpp",
-        # hf_model="lmstudio-community/Llama-3.3-70B-Instruct-GGUF",
-        # hf_model_fn="Llama-3.3-70B-Instruct-Q4_K_M.gguf",
-        hf_model="bartowski/Llama-3.2-3B-Instruct-GGUF",
-        hf_model_fn="Llama-3.2-3B-Instruct-Q4_0.gguf",
+        hf_model="lmstudio-community/Llama-3.3-70B-Instruct-GGUF",
+        hf_model_fn="Llama-3.3-70B-Instruct-Q4_K_M.gguf",
+        # hf_model="bartowski/Llama-3.2-3B-Instruct-GGUF",
+        # hf_model_fn="Llama-3.2-3B-Instruct-Q4_0.gguf",
         ollama_model="llama3.2:3b",
         collection_name="wboe_word_embeddings",
         vector_store_filepath_name="chroma_langchain_db_wboe_embeddings",
         jwt_token=os.getenv("OLLAMA_API_KEY"),
         hf_token=os.getenv("HUGGINGFACE_API_KEY"),
-        user_input=["prompt1.txt", "prompt2.txt", "prompt3.txt"],
-        keyword="keusch",
-        max_context_length=8192,
+        user_input=["prompt1.txt"],
+        max_context_length=110000,
         output_dir="output",
     )
     wboe_embeddings.main()

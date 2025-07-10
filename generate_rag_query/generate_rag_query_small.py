@@ -168,11 +168,11 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
 
 if __name__ == "__main__":
     wboe_embeddings = WboeRAGPipeline(
-        backend="ollama",
-        hf_model="lmstudio-community/Llama-3.3-70B-Instruct-GGUF",
-        hf_model_fn="Llama-3.3-70B-Instruct-Q4_K_M.gguf",
-        # hf_model="bartowski/Llama-3.2-3B-Instruct-GGUF",
-        # hf_model_fn="Llama-3.2-3B-Instruct-Q4_0.gguf",
+        backend="llama_cpp",
+        # hf_model="lmstudio-community/Llama-3.3-70B-Instruct-GGUF",
+        # hf_model_fn="Llama-3.3-70B-Instruct-Q4_K_M.gguf",
+        hf_model="bartowski/Llama-3.2-3B-Instruct-GGUF",
+        hf_model_fn="Llama-3.2-3B-Instruct-Q4_0.gguf",
         ollama_model="llama3.2:3b",
         collection_name="wboe_word_embeddings",
         vector_store_filepath_name="chroma_langchain_db_wboe_embeddings",
@@ -180,8 +180,8 @@ if __name__ == "__main__":
         hf_token=os.getenv("HUGGINGFACE_API_KEY"),
         user_input=["prompt1.txt", "prompt2.txt", "prompt3.txt"],
         max_context_length=128000,
-        available_gpu_memory=32,
-        model_memory_usage=2,
+        available_gpu_memory=80,
+        model_memory_usage=44,
         output_dir="output",
     )
     wboe_embeddings.main()

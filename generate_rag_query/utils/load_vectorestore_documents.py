@@ -7,8 +7,6 @@ from typing import Generator
 
 class WboeLoadVectorstore(BaseModel):
 
-    hf_model: str = "lmstudio-community/Llama-3.3-70B-Instruct-GGUF"
-    ollama_model: str = "llama3.3:latest"
     collection_name: str = "wboe_word_embeddings"
     vector_store_filepath_name: str = "chroma_langchain_db_wboe_embeddings"
     jwt_token: str = os.getenv("OLLAMA_API_KEY")
@@ -17,6 +15,7 @@ class WboeLoadVectorstore(BaseModel):
     output_dir: str = "output"
     vector_store_filepath: str = ""
     context_yield: str = None
+    embeddings_yield: list = None
 
     # Define the model configuration for Pydantic
     # This allows for arbitrary types and forbids extra fields
@@ -82,9 +81,14 @@ class WboeLoadVectorstore(BaseModel):
             self.keyword = value.get("keyword", "unknown")
 
             context = self.vector_store.get(
-                include=["documents"],
+                include=["documents", "embeddings"],
                 where={"keyword": self.keyword})
 
             self.context_yield = context["documents"][0]
+            self.embeddings_yield = context["embeddings"][0]
 
-            yield {"keyword": self.keyword, "context": self.context_yield}
+            yield {
+                "keyword": self.keyword,
+                "context": self.context_yield,
+                "embeddings": self.embeddings_yield
+            }

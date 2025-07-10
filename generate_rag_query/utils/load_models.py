@@ -19,16 +19,15 @@ class WboeLoadModels(BaseModel):
     hf_token: str = os.getenv("HUGGINGFACE_API_KEY")
     user_input: list[str] = ["prompt1.txt", "prompt2.txt", "prompt3.txt"]
     keyword: str = "keusch",
-    max_context_length: int = 2048
+    max_context_length: int = 128000
     context_token_length: int = 2048
-    reserved_prompt_length: int = 2048
+    reserved_prompt_length: int = 4096
     output_dir: str = "output"
     model: object = None
     tokenizer: object = None
     pipe: object = None
     inputs: str = ""
-    response: str | object = ""
-    chat_history: dict[str, list[str]] = {}
+    conversation_messages: list[dict[str, str]] = []
 
     # Define the model configuration for Pydantic
     # This allows for arbitrary types and forbids extra fields
@@ -91,7 +90,7 @@ class WboeLoadModels(BaseModel):
                 "headers": {"Authorization": f"Bearer {self.jwt_token}"},
             },
             num_ctx=self.context_token_length,
-            temperature=0.4,
+            temperature=0.7,
             top_p=0.9,
             top_k=50,
             repetition_penalty=1.2,
@@ -99,69 +98,10 @@ class WboeLoadModels(BaseModel):
 
         return llm
 
-    def load_llama_cpp_embeddings_function(self):
-        """Loads the LlamaCpp embeddings function."""
-
-        from llama_cpp import Llama
-
-        if not self.hf_model:
-            raise ValueError("LlamaCpp model is not specified.")
-
-        llm = Llama.from_pretrained(
-            repo_id=self.hf_model,
-            filename=self.hf_model_fn,
-            n_gpu_layers=-1,
-            seed=1337,
-            embedding=True,
-        )
-
-        return llm
-
-    def load_llama_cpp_tokenizer(self):
-        """Loads the LlamaCpp tokenizer."""
-
-        from llama_cpp import Llama
-
-        if not self.hf_model:
-            raise ValueError("LlamaCpp model is not specified.")
-
-        tokenizer = Llama.from_pretrained(
-            repo_id=self.hf_model,
-            filename=self.hf_model_fn,
-            n_gpu_layers=-1,
-        )
-
-        return tokenizer
-
-    def truncate_text(self, text: str) -> str:
-        """Truncates the text to fit within the context token length."""
-
-        tokenizer = self.load_llama_cpp_tokenizer()
-        tokens = tokenizer.tokenize(text.encode("utf-8"))
-        token_count = len(tokens)
-        print(f"Token count: {token_count}")
-
-        reserved_length = self.reserved_prompt_length
-        total_length = self.max_context_length - reserved_length
-        print(f"Total length: {total_length}")
-
-        if token_count <= total_length:
-            print("Fits within the context length.")
-            self.context_token_length = token_count + reserved_length
-            print(f"Context token length: {self.context_token_length}")
-            return text
-
-        if token_count > total_length:
-            print("Truncating text to fit within the context length.")
-            self.context_token_length = total_length + reserved_length
-            truncated_tokens = tokens[:total_length]
-            truncated_text = tokenizer.detokenize(truncated_tokens)
-            print(f"Truncated text length: {len(truncated_text)}")
-            return truncated_text
-
-        return text
-
-    def load_llama_cpp_model(self):
+    def load_llama_cpp_model(
+        self,
+        embeddings: bool = False
+    ) -> object:
         """Loads the LlamaCpp model."""
 
         from llama_cpp import Llama
@@ -169,22 +109,18 @@ class WboeLoadModels(BaseModel):
         if not self.hf_model:
             raise ValueError("LlamaCpp model is not specified.")
 
-        llm = Llama.from_pretrained(
+        model = Llama.from_pretrained(
             repo_id=self.hf_model,
             filename=self.hf_model_fn,
+            n_gpu_layers=-1,
+            seed=1337,
+            embeddings=embeddings,
             n_ctx=self.context_token_length,
             n_batch=2048,
             n_ubatch=512,
-            n_gpu_layers=-1,
-            seed=1337,
-            # kwargs={
-            #     "temperature": 0.7,
-            #     "top_p": 0.9,
-            #     "top_k": 50,
-            #     "repetition_penalty": 1.2,
-            # }
         )
-        return llm
+
+        return model
 
     def load_huggingface_model(self):
         """Loads the Hugging Face model and tokenizer."""
@@ -279,30 +215,8 @@ class WboeLoadModels(BaseModel):
     def generate_ollama(self) -> str:
         """Generates a response using the Ollama LLM."""
 
-        system_message_content = (
-            "Du bist ein Assistent, der auf die Frage des Benutzers antwortet."
-            "Du hast Zugriff auf den Kontext,\
-                der aus einem Vektorstore abgerufen "
-            "wurde. Deine Aufgabe ist es,\
-                die Frage des Benutzers zu beantworten, "
-            "indem du die bereitgestellten Informationen nutzt. "
-            "Du solltest keine Informationen hinzufügen, die nicht im Kontext "
-            "enthalten sind, und du solltest keine Annahmen treffen. "
-            "\n\n"
-            f"{self.inputs}"
-        )
-
-        user_content = "\n\n".join(item for item in self.chat_history.get(
-            self.keyword, []))
-
-        conversation_messages = [
-            {"role": "system", "content": system_message_content},
-            {"role": "user", "content": (user_content)},
-            {"role": "assistant", "content": ("")},
-        ]
-
         try:
-            return self.model.invoke(conversation_messages)
+            return self.model.invoke(self.conversation_messages)
 
         except (IndexError, AttributeError):
             print("Error accessing LLM response")
@@ -318,39 +232,8 @@ class WboeLoadModels(BaseModel):
         #     "begin_of_text": "<|begin_of_text|>"
         # }
 
-        system_message_content = (
-            "Du bist ein Assistent, der auf die Frage des Benutzers antwortet."
-            "Du hast Zugriff auf den Kontext,\
-                der aus einem Vektorstore abgerufen "
-            "wurde. Deine Aufgabe ist es,\
-                die Frage des Benutzers zu beantworten, "
-            "indem du die bereitgestellten Informationen der User nutzt. "
-            "Du solltest keine Informationen hinzufügen, die nicht im Kontext "
-            "enthalten sind, und du solltest keine Annahmen treffen. "
-            "\n\n"
-        )
-
-        # message = """
-        #     <|begin_of_text|>\
-        #     <|start_header_id|>system<|end_header_id|>\n\n\
-        #     You are a helpful assistant.\n\n\
-        #     Only use the following information:\n\n\
-        #     {context}<|eot_id|>\
-        #     <|start_header_id|>user<|end_header_id|>\n\n\
-        #     {user_input}<|eot_id|>\n\n\
-        #     <|start_header_id|>assistant<|end_header_id|>\n\n
-        # """
-        user_content = self.inputs
-        user_content += "\n\n".join(item for item in self.chat_history.get(
-            self.keyword, []))
-
-        conversation_messages = [
-            {"role": "system", "content": system_message_content},
-            {"role": "user", "content": (user_content)},
-        ]
-
         try:
-            return self.pipe.invoke(conversation_messages)
+            return self.pipe.invoke(self.conversation_messages)
 
         except (IndexError, AttributeError):
             print("Error accessing LLM response")
@@ -359,78 +242,156 @@ class WboeLoadModels(BaseModel):
     def generate_llama_cpp(self) -> str:
         """Generates a response using the Hugging Face LLM."""
 
-        system_message_content = (
-            "Du bist ein Assistent, der auf die Frage des Benutzers antwortet."
-            "Du hast Zugriff auf den Kontext,\
-                der aus einem Vektorstore abgerufen "
-            "wurde. Deine Aufgabe ist es,\
-                die Frage des Benutzers zu beantworten, "
-            "indem du die bereitgestellten Informationen nutzt. "
-            "Du solltest keine Informationen hinzufügen, die nicht im Kontext "
-            "enthalten sind, und du solltest keine Annahmen treffen. "
-            "\n\n"
-        )
-
-        user_content = self.inputs
-        user_content += "\n\n".join(item for item in self.chat_history.get(
-            self.keyword, []))
-
-        conversation_messages = [
-            {"role": "system", "content": system_message_content},
-            {"role": "user", "content": (user_content)},
-        ]
-
         try:
             response = self.model.create_chat_completion(
-                messages=conversation_messages,
+                messages=self.conversation_messages,
                 max_tokens=-1,
-                response_format={
-                    "type": "json_object",
-                }
+                temperature=0.7,
+                seed=1337,
+                # top_p=0.9,
+                # top_k=50,
+                # repeat_penalty=1.2,
+                # response_format={
+                #     "type": "json_object",
+                # }
             )
             return response
 
         except (IndexError, AttributeError):
             print("Error accessing LLM response")
-            return ""
+            return {"error": "Error accessing LLM response"}
 
-    def create_chat_history(self) -> None:
-        """Initializes the chat history for the given keyword."""
+    def create_conversation_messages(self) -> None:
+        """Initializes the chat messages."""
 
-        if self.keyword not in self.chat_history:
-            self.chat_history[self.keyword] = []
-        else:
-            print(f"Chat history for {self.keyword} already exists.")
+        system_message_content = (
+            "Du bist ein Assistent, der auf die Frage des Benutzers antwortet."
+            "Du hast Zugriff auf den Kontext, der vom Benutzer bereitgestellt "
+            "wird. Deine Aufgabe ist es, die Instruktionen des Benutzers "
+            "zu befolgen, indem du die bereitgestellten Informationen nutzt. "
+            "Du solltest keine Informationen hinzufügen, die nicht im Kontext "
+            "enthalten sind, und du solltest keine Annahmen treffen. "
+            "Gehe step-by-step vor und erkläre deine Schritte "
+            "ausführlich bevor du eine Antwort gibst."
+            "\n\n"
+        )
 
-    def update_chat_history(self, message: str) -> None:
-        """Updates the chat history for the
-        given keyword with a new message."""
+        conversation_messages = [
+            {"role": "system", "content": system_message_content},
+        ]
 
-        self.create_chat_history()
-        self.chat_history[self.keyword].append(message)
-        print(f"Updated chat history for {self.keyword}")
+        return conversation_messages
+
+    def update_conversation_messages(
+        self,
+        new_message: str = None,
+        role: str = "user"
+    ) -> None:
+        """Updates the conversation messages with the
+        latest user input and model response."""
+
+        if new_message:
+            # Add the new message to the conversation
+            self.conversation_messages.append(
+                {"role": role, "content": (new_message)}
+            )
+
+    def verify_conversation_messages_length(self) -> bool:
+        """Verifies if the conversation messages length is within the limit."""
+
+        print("Verifying conversation messages length...")
+
+        match self.backend:
+            case "ollama":
+                self.model = self.load_ollama_embeddings_function()
+                conversation_length = sum(
+                    len(self.model.embed_query(
+                        msg["content"][0].encode("utf-8")
+                        )) for msg in self.conversation_messages
+                )
+            case "hf_pipeline":
+                # must be verified
+                self.model, tokenizer = self.load_huggingface_model()
+                conversation_length = sum(
+                    len(tokenizer(
+                        msg["content"][0].encode("utf-8"),
+                        return_tensors="pt"
+                        )["input_ids"]) for msg in self.conversation_messages
+                )
+
+            case "llama_cpp":
+                self.model = self.load_llama_cpp_model()
+                conversation_length = sum(
+                    len(self.model.tokenize(
+                        msg["content"][0].encode("utf-8")
+                        )) for msg in self.conversation_messages
+                )
+
+        if conversation_length > (
+                self.max_context_length - self.reserved_prompt_length
+                ):
+            print(f"Conversation messages length exceeds the limit:\
+                {conversation_length}")
+            return False, conversation_length
+
+        print(f"Conversation messages length is within the limit:\
+            {conversation_length}")
+        return True, conversation_length
+
+    def truncate_text(self, text: str, conversation_length: int) -> str:
+        """Truncates the text to fit within the context token length."""
+
+        match self.backend:
+            case "hf_pipeline":
+                # must be verified
+                self.model, tokenizer = self.load_huggingface_model()
+                tokens = tokenizer(
+                    text.encode("utf-8"),
+                    return_tensors="pt"
+                )["input_ids"][0].tolist()
+
+            case "llama_cpp":
+                self.model = self.load_llama_cpp_model()
+                tokens = self.model.tokenize(text.encode("utf-8"))
+
+        token_count = len(tokens)
+        print(f"Token count: {token_count}")
+        print(f"Max length: {self.max_context_length}")
+
+        exceeded_length = conversation_length - (
+            self.max_context_length - self.reserved_prompt_length)
+        to_truncate = max(0, token_count - exceeded_length)
+
+        truncated_tokens = tokens[:to_truncate]
+        truncated_text = self.model.detokenize(truncated_tokens)
+        print(f"Truncated text length: {len(truncated_text)}")
+
+        return truncated_text
 
     def ollama(self) -> None:
         """Generates responses using the Ollama LLM."""
 
-        self.model = self.load_ollama_model()
+        self.conversation_messages = self.create_conversation_messages()
+        self.update_conversation_messages(new_message=self.inputs, role="user")
 
         prompt_files = self.user_input
-
         for file in prompt_files:
-
             print(f"Processing file: {file}")
 
             with open(file, "r") as f:
                 text = f.read().strip()
 
-            self.update_chat_history(text)
+            self.update_conversation_messages(new_message=text, role="user")
+            _, length = self.verify_conversation_messages_length()
+            self.context_token_length = length + self.reserved_prompt_length
+            print(f"Context token length: {self.context_token_length}")
 
-            self.response = self.generate_ollama()
+            self.model = self.load_ollama_model()
+            response = self.generate_ollama()
 
             # print(response)
             fn_prompt = file.split("/")[-1].replace(".txt", "")
-            fn_model = self.hf_model.replace("/", "-")
+            fn_model = self.ollama_model.replace("/", "-")
             fn_out_dir = self.output_dir
             fn_keyword = self.keyword
             fn_name = f"{fn_keyword}_{fn_prompt}_{fn_model}.txt"
@@ -438,14 +399,16 @@ class WboeLoadModels(BaseModel):
 
             try:
                 with open(fn, "w") as file:
-                    file.write(self.response)
+                    file.write(response)
 
             except Exception as e:
                 print(f"Error writing response to file: {e}")
-                print("Response:", self.response)
+                print("Response:", response)
 
-            if isinstance(self.response, str):
-                self.update_chat_history(self.response)
+            self.update_conversation_messages(
+                new_message=response,
+                role="assistant"
+            )
 
             sleep(5)
 
@@ -459,6 +422,8 @@ class WboeLoadModels(BaseModel):
         # Create the Hugging Face pipeline
         self.pipe = self.load_huggingface_pipeline()
 
+        self.conversation_messages = self.create_conversation_messages()
+
         prompt_files = self.user_input
 
         for file in prompt_files:
@@ -466,9 +431,18 @@ class WboeLoadModels(BaseModel):
             with open(file, "r") as f:
                 text = f.read().strip()
 
-            self.update_chat_history(text)
+            # concatenate the inputs (context from vectorstore)
+            # and user prompt message
+            self.user_input_text = text
 
-            self.response = self.generate_huggingface()
+            self.update_conversation_messages(new_message=text, role="user")
+            # truncate the input text to fit within the context length
+            exceeded, length = self.verify_conversation_messages_length()
+            if exceeded:
+                self.inputs = self.truncate_text(self.inputs, length)
+                self.conversation_messages[1]["content"] = (self.inputs)
+
+            response = self.generate_huggingface()
 
             # print(response)
             fn_prompt = file.split("/")[-1].replace(".txt", "")
@@ -480,14 +454,16 @@ class WboeLoadModels(BaseModel):
 
             try:
                 with open(fn, "w") as file:
-                    file.write(self.response)
+                    file.write(response)
 
             except Exception as e:
                 print(f"Error writing response to file: {e}")
-                print("Response:", self.response)
+                print("Response:", response)
 
-            if isinstance(self.response, str):
-                self.update_chat_history(self.response)
+            self.update_conversation_messages(
+                new_message=response,
+                role="assistant"
+            )
 
             # Clear GPU memory after each file processing
             if torch.cuda.is_available():
@@ -499,15 +475,46 @@ class WboeLoadModels(BaseModel):
     def llama_cpp(self) -> None:
         """Generates responses using the LlamaCpp LLM."""
 
+        self.conversation_messages = self.create_conversation_messages()
+        self.update_conversation_messages(new_message=self.inputs, role="user")
+
         for file in self.user_input:
+
+            del self.model
+            if torch.cuda.is_available():
+                print("Clearing GPU memory...")
+                torch.cuda.empty_cache()
+            sleep(1)
 
             with open(file, "r") as f:
                 text = f.read().strip()
 
-            self.update_chat_history(text)
+            self.update_conversation_messages(new_message=text, role="user")
 
-            self.response = self.generate_llama_cpp()
+            # truncate the input text to fit within the context length
+            exceeded, length = self.verify_conversation_messages_length()
+            if exceeded:
+                self.inputs = self.truncate_text(self.inputs, length)
 
+                self.conversation_messages[1]["content"] = (self.inputs)
+
+                self.context_token_length = self.max_context_length
+            else:
+                self.context_token_length = (
+                    length + self.reserved_prompt_length
+                )
+
+            del self.model
+            if torch.cuda.is_available():
+                print("Clearing GPU memory...")
+                torch.cuda.empty_cache()
+            sleep(1)
+
+            self.model = self.load_llama_cpp_model()
+            # generate response from the LlamaCpp model
+            response = self.generate_llama_cpp()
+
+            # save the response to a file
             fn_prompt = file.split("/")[-1].replace(".txt", "")
             fn_model = self.hf_model.replace("/", "-")
             fn_out_dir = self.output_dir
@@ -517,25 +524,14 @@ class WboeLoadModels(BaseModel):
 
             try:
                 with open(fn, "w") as file:
-                    json.dump(self.response, file, indent=4)
+                    json.dump(response, file, indent=4)
 
             except Exception as e:
                 print(f"Error writing response to file: {e}")
-                print("Response:", self.response)
+                print("Response:", response)
 
-            if isinstance(self.response, str):
-                self.update_chat_history(self.response)
-
-            if isinstance(self.response, dict):
-                # Assuming the response is a llama_cpp response object
-                response_text = self.response.get(
-                            "choices",
-                            [{}])[0].get("message",
-                                         {}).get("content", "")
-                self.update_chat_history(response_text)
-
-            # Clear GPU memory after each file processing
-            if torch.cuda.is_available():
-                print("Clearing GPU memory...")
-                torch.cuda.empty_cache()
-            sleep(5)
+            self.update_conversation_messages(
+                new_message=response,
+                role="assistant"
+            )
+            sleep(1)

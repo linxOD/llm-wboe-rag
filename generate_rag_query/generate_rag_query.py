@@ -76,8 +76,11 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
     def generate(self):
         """Generates word embeddings using the Ollama model."""
 
+        self.max_context_length = self.calc_max_context_length()
+        print(f"1: Max. context length calculated: {self.max_context_length}")
+
         for doc in self.context:
-            print(f"Processing document: {doc['keyword']}")
+            print(f"2: Processing document: {doc['keyword']}")
             self.keyword = doc["keyword"]
 
             if self.keyword != "43218__Gefrette_Simplex":
@@ -88,7 +91,7 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
             try:
                 self.inputs = doc["context"]
                 self.embeddings = len(doc["embeddings"])
-                print(f"Document {self.keyword} has {self.embeddings}\
+                print(f"3: Document {self.keyword} has {self.embeddings}\
                     embeddings.")
 
             except Exception as e:
@@ -108,10 +111,9 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
                     self.huggingface()
 
                 case "llama_cpp":
-                    print("Using Llama CPP model for word embeddings.")
+                    print("4: Using Llama CPP model for word embeddings.")
                     print(f"Using Hugging Face model: {self.hf_model}")
                     print(f"Using Llama CPP model file: {self.hf_model_fn}")
-                    self.max_context_length = self.calc_max_context_length()
                     self.llama_cpp()
 
             print(f"Processed document: {doc['keyword']} successfully.")
@@ -168,20 +170,20 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
 
 if __name__ == "__main__":
     wboe_embeddings = WboeRAGPipeline(
-        backend="ollama",
+        backend="llama_cpp",
         hf_model="lmstudio-community/Llama-3.3-70B-Instruct-GGUF",
         hf_model_fn="Llama-3.3-70B-Instruct-Q4_K_M.gguf",
         # hf_model="bartowski/Llama-3.2-3B-Instruct-GGUF",
         # hf_model_fn="Llama-3.2-3B-Instruct-Q4_0.gguf",
-        ollama_model="llama3.2:3b",
+        ollama_model="deepseek-r1:32b",
         collection_name="wboe_word_embeddings",
         vector_store_filepath_name="chroma_langchain_db_wboe_embeddings",
         jwt_token=os.getenv("OLLAMA_API_KEY"),
         hf_token=os.getenv("HUGGINGFACE_API_KEY"),
         user_input=["prompt1.txt", "prompt2.txt", "prompt3.txt"],
         max_context_length=128000,
-        available_gpu_memory=32,
-        model_memory_usage=2,
+        available_gpu_memory=80,
+        model_memory_usage=44,
         output_dir="output",
     )
     wboe_embeddings.main()

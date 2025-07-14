@@ -69,11 +69,11 @@ class WboeCreateVectorstore(BaseModel):
         for file in file_glob:
             filename = os.path.basename(file).replace(
                 f".{self.documents_file_type}", "")
-            if (self.exclude_files[0] == "none" and
+            if (self.exclude_files[0] != "none" and
                     filename in self.exclude_files):
                 print(f"Excluding file {filename} from processing.")
                 continue
-            if (self.include_files[0] == "all" and
+            if (self.include_files[0] != "all" and
                     filename not in self.include_files):
                 print(f"Excluding file {filename} for processing.")
                 continue

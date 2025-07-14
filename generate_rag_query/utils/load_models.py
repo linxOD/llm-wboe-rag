@@ -1,6 +1,7 @@
 import os
 import json
 import torch
+import time
 # import numpy as np
 from time import sleep
 # from langchain.chat_models import init_chat_model
@@ -300,13 +301,14 @@ class WboeLoadModels(BaseModel):
         """Verifies if the conversation messages length is within the limit."""
 
         print("Verifying conversation messages length...")
+        conversation_length: int = 0
 
         match self.backend:
             case "ollama":
                 self.model = self.load_ollama_embeddings_function()
                 conversation_length = sum(
                     len(self.model.embed_query(
-                        msg["content"][0].encode("utf-8")
+                        msg["content"].encode("utf-8")
                         )) for msg in self.conversation_messages
                 )
             case "hf_pipeline":
@@ -314,29 +316,29 @@ class WboeLoadModels(BaseModel):
                 self.model, tokenizer = self.load_huggingface_model()
                 conversation_length = sum(
                     len(tokenizer(
-                        msg["content"][0].encode("utf-8"),
+                        msg["content"].encode("utf-8"),
                         return_tensors="pt"
                         )["input_ids"]) for msg in self.conversation_messages
                 )
 
             case "llama_cpp":
+                self.context_token_length = 1024
                 self.model = self.load_llama_cpp_model()
                 conversation_length = sum(
                     len(self.model.tokenize(
-                        msg["content"][0].encode("utf-8")
+                        msg["content"].encode("utf-8")
                         )) for msg in self.conversation_messages
                 )
 
         if conversation_length > (
-                self.max_context_length - self.reserved_prompt_length
-                ):
+                self.max_context_length - self.reserved_prompt_length):
             print(f"Conversation messages length exceeds the limit:\
                 {conversation_length}")
-            return False, conversation_length
+            return True, conversation_length
 
         print(f"Conversation messages length is within the limit:\
             {conversation_length}")
-        return True, conversation_length
+        return False, conversation_length
 
     def truncate_text(self, text: str, conversation_length: int) -> str:
         """Truncates the text to fit within the context token length."""
@@ -351,6 +353,7 @@ class WboeLoadModels(BaseModel):
                 )["input_ids"][0].tolist()
 
             case "llama_cpp":
+                self.context_token_length = 1024
                 self.model = self.load_llama_cpp_model()
                 tokens = self.model.tokenize(text.encode("utf-8"))
 
@@ -366,7 +369,16 @@ class WboeLoadModels(BaseModel):
         truncated_text = self.model.detokenize(truncated_tokens)
         print(f"Truncated text length: {len(truncated_text)}")
 
-        return truncated_text
+        return truncated_text.decode("utf-8")
+
+    def clear_model_from_cache(self) -> None:
+        """Clears the model cache to free up memory."""
+
+        del self.model
+        if torch.cuda.is_available():
+            print("Clearing GPU memory...")
+            torch.cuda.empty_cache()
+        sleep(5)
 
     def ollama(self) -> None:
         """Generates responses using the Ollama LLM."""
@@ -382,9 +394,13 @@ class WboeLoadModels(BaseModel):
                 text = f.read().strip()
 
             self.update_conversation_messages(new_message=text, role="user")
-            _, length = self.verify_conversation_messages_length()
-            self.context_token_length = length + self.reserved_prompt_length
-            print(f"Context token length: {self.context_token_length}")
+            if self.ollama_model in ["gemma3:27b"]:
+                self.context_token_length = 35000
+            else:
+                _, length = self.verify_conversation_messages_length()
+                self.context_token_length = (
+                    length + self.reserved_prompt_length)
+                print(f"Context token length: {self.context_token_length}")
 
             self.model = self.load_ollama_model()
             response = self.generate_ollama()
@@ -475,44 +491,52 @@ class WboeLoadModels(BaseModel):
     def llama_cpp(self) -> None:
         """Generates responses using the LlamaCpp LLM."""
 
+        # count time
+        start_time = time.time()
+        print("5: Starting LlamaCpp generation...")
+
         self.conversation_messages = self.create_conversation_messages()
-        self.update_conversation_messages(new_message=self.inputs, role="user")
+        self.update_conversation_messages(
+            new_message=self.inputs,
+            role="user"
+        )
+        print("6: System Msg. and Inputs set.")
 
-        for file in self.user_input:
-
-            del self.model
-            if torch.cuda.is_available():
-                print("Clearing GPU memory...")
-                torch.cuda.empty_cache()
-            sleep(1)
+        for i, file in enumerate(self.user_input):
 
             with open(file, "r") as f:
                 text = f.read().strip()
 
-            self.update_conversation_messages(new_message=text, role="user")
+            self.update_conversation_messages(
+                new_message=text,
+                role="user"
+            )
+            print("7: Adding User prompt to messsages.")
 
             # truncate the input text to fit within the context length
             exceeded, length = self.verify_conversation_messages_length()
+            print(f"8: Exceeded: {exceeded}, Length: {length}")
+
+            self.clear_model_from_cache()
+
             if exceeded:
                 self.inputs = self.truncate_text(self.inputs, length)
 
                 self.conversation_messages[1]["content"] = (self.inputs)
 
                 self.context_token_length = self.max_context_length
+
+                self.clear_model_from_cache()
             else:
                 self.context_token_length = (
                     length + self.reserved_prompt_length
                 )
 
-            del self.model
-            if torch.cuda.is_available():
-                print("Clearing GPU memory...")
-                torch.cuda.empty_cache()
-            sleep(1)
-
             self.model = self.load_llama_cpp_model()
+            print(f"9: Model loaded: {self.hf_model_fn}")
             # generate response from the LlamaCpp model
             response = self.generate_llama_cpp()
+            print("10: Response generated.")
 
             # save the response to a file
             fn_prompt = file.split("/")[-1].replace(".txt", "")
@@ -522,16 +546,31 @@ class WboeLoadModels(BaseModel):
             fn_name = f"{fn_keyword}_{fn_prompt}_{fn_model}.json"
             fn = os.path.join(fn_out_dir, fn_name)
 
+            # count time
+            end_time = time.time()
+            elapsed_time = end_time - start_time
+            print(f"Time taken to process {file}: {elapsed_time:.2f} seconds")
+            response["elapsed_time"] = elapsed_time
+
             try:
                 with open(fn, "w") as file:
                     json.dump(response, file, indent=4)
+                print(f"Response saved to {fn}")
 
             except Exception as e:
                 print(f"Error writing response to file: {e}")
                 print("Response:", response)
 
+            response = response.get(
+                "choices", [{}])[0].get("message", {}).get("content", "")
+
             self.update_conversation_messages(
                 new_message=response,
                 role="assistant"
             )
-            sleep(1)
+            print("11: Updated conversation messages with response.")
+
+            self.clear_model_from_cache()
+
+            print(f"12: Iteration {i + 1} completed for file: {file}")
+            # done

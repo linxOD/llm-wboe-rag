@@ -83,9 +83,24 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
             print(f"2: Processing document: {doc['keyword']}")
             self.keyword = doc["keyword"]
 
-            if self.keyword != "43218__Gefrette_Simplex":
+            keywords_to_process = [
+                "44358__geilig_Simplex.txt",
+                "44365__grob_Simplex.txt",
+                "44424__kindisch_Simplex.txt",
+                "43221__gockert_Simplex.txt",
+                "44413__Kind_Simplex.txt",
+                "44375__Käue_Simplex.txt",
+                "44224__Köder_Simplex.txt",
+                "44394__Keife_Simplex.txt",
+                "44376__käuen_Simplex.txt",
+                "44399__kenten_Simplex.txt",
+                "44370__kardätschen_Simplex.txt",
+                "44223__ködern_Simplex.txt"
+            ]
+
+            if self.keyword not in keywords_to_process:
                 print(f"Skipping document {self.keyword}\
-                    as it is not '43218__Gefrette_Simplex'.")
+                    as it is not in the list of keywords to process.")
                 continue
 
             try:
@@ -171,19 +186,24 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
 if __name__ == "__main__":
     wboe_embeddings = WboeRAGPipeline(
         backend="llama_cpp",
-        hf_model="lmstudio-community/Llama-3.3-70B-Instruct-GGUF",
-        hf_model_fn="Llama-3.3-70B-Instruct-Q4_K_M.gguf",
-        # hf_model="bartowski/Llama-3.2-3B-Instruct-GGUF",
-        # hf_model_fn="Llama-3.2-3B-Instruct-Q4_0.gguf",
+        # hf_model="lmstudio-community/Llama-3.3-70B-Instruct-GGUF",
+        # hf_model_fn="Llama-3.3-70B-Instruct-Q4_K_M.gguf",
+        hf_model="bartowski/Llama-3.2-3B-Instruct-GGUF",
+        hf_model_fn="Llama-3.2-3B-Instruct-Q4_0.gguf",
         ollama_model="deepseek-r1:32b",
         collection_name="wboe_word_embeddings",
         vector_store_filepath_name="chroma_langchain_db_wboe_embeddings",
         jwt_token=os.getenv("OLLAMA_API_KEY"),
         hf_token=os.getenv("HUGGINGFACE_API_KEY"),
-        user_input=["prompt1.txt", "prompt2.txt", "prompt3.txt"],
+        user_input=[
+            "prompt1.txt",
+            "prompt2.txt",
+            "prompt3.txt",
+            "prompt4.txt"
+        ],
         max_context_length=128000,
         available_gpu_memory=80,
-        model_memory_usage=44,
+        model_memory_usage=4,
         output_dir="output",
     )
     wboe_embeddings.main()

@@ -5,7 +5,7 @@ from typing import Generator as Gen
 
 
 def load_files() -> list[str]:
-    files = glob.glob("output/*.json")
+    files = glob.glob("output_2025-08-28_small/*.json")
     return files
 
 
@@ -99,14 +99,17 @@ def verify_parsed_data(parsed_data) -> str:
 
 
 def create_text_from_parsed_data(fn, parsed_data) -> str:
-    text = ""
-    fn = fn.replace(".json", "")
-    for key, value in parsed_data.items():
-        text += f"File: {fn}\n"
-        text += f"{key}:\n"
-        text += verify_parsed_data(value)
-        text += "\n"
-    text += "\n\n"
+    if isinstance(parsed_data, str):
+        text = parsed_data
+    else:
+        text = ""
+        fn = fn.replace(".json", "")
+        for key, value in parsed_data.items():
+            text += f"File: {fn}\n"
+            text += f"{key}:\n"
+            text += verify_parsed_data(value)
+            text += "\n"
+        text += "\n\n"
 
     text = text.strip()
     with open(f"{fn}.txt", "w") as text_file:

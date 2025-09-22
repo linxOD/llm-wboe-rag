@@ -10,10 +10,10 @@ from typing import Literal
 class WboeBaseRAG(BaseModel):
     # Common attributes and configuration
     context: dict[str, str] = {}
+    keywords_to_process: list[str] = []
     backend: Literal["ollama", "hf_pipeline", "llama_cpp"] = "ollama"
     embeddings: int = 0
-    available_gpu_memory: int = 80  # in GB
-    model_memory_usage: int = 44  # in GB, for the model itself
+    model_memory_usage: float = 44.0  # in GB, for the model itself
 
     model_config: dict = {
         "arbitrary_types_allowed": True,
@@ -83,22 +83,7 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
             print(f"2: Processing document: {doc['keyword']}")
             self.keyword = doc["keyword"]
 
-            keywords_to_process = [
-                "44358__geilig_Simplex.txt",
-                "44365__grob_Simplex.txt",
-                "44424__kindisch_Simplex.txt",
-                "43221__gockert_Simplex.txt",
-                "44413__Kind_Simplex.txt",
-                "44375__Käue_Simplex.txt",
-                "44224__Köder_Simplex.txt",
-                "44394__Keife_Simplex.txt",
-                "44376__käuen_Simplex.txt",
-                "44399__kenten_Simplex.txt",
-                "44370__kardätschen_Simplex.txt",
-                "44223__ködern_Simplex.txt"
-            ]
-
-            if self.keyword not in keywords_to_process:
+            if self.keyword not in self.keywords_to_process:
                 print(f"Skipping document {self.keyword}\
                     as it is not in the list of keywords to process.")
                 continue
@@ -106,8 +91,12 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
             try:
                 self.inputs = doc["context"]
                 self.embeddings = len(doc["embeddings"])
+                print()
+                print("######################################################")
                 print(f"3: Document {self.keyword} has {self.embeddings}\
                     embeddings.")
+                print("######################################################")
+                print()
 
             except Exception as e:
                 print(f"Error processing document {doc['keyword']}: {e}")
@@ -157,14 +146,42 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
 
     def calc_max_context_length(self) -> int:
         """Calculates the maximum context length based on the backend."""
-        usage_for_max_length = 40
-        avail_gpu_memory = self.available_gpu_memory - self.model_memory_usage
+        usage_for_max_length = 40  # default for Llama3.3 70B
+        # avail_gpu_memory = self.total_available_gpu_memory - self.model_memory_usage
+        avail_gpu_memory = 24.0 - self.model_memory_usage
         token_per_gb = self.max_context_length / usage_for_max_length
 
         return int(token_per_gb * avail_gpu_memory)
 
+    def model_memory_handling(self) -> None:
+        """Handles model loading and unloading based on memory requirements."""
+        self.model_size_gb = self.model_memory_usage
+        self.total_available_gpu_memory = self.check_free_gpu_memory()
+        self.model_memory_usage_1k_token = (40 / 128000) * 1000  # GB per 1000 tokens
+        print("Model memory handling:")
+        print(f"Model size (GB): {self.model_size_gb}")
+        print(f"Total available GPU memory (GB): {self.total_available_gpu_memory}")
+        print(f"Model memory usage per 1000 tokens (GB): {self.model_memory_usage_1k_token}")
+
     def main(self) -> None:
         """Main method to run the RAG pipeline."""
+
+        self.model_memory_handling()
+
+        if self.enable_memory_monitoring:
+            print("1. Initial Memory Status:")
+            self.print_gpu_memory_status()
+            print()
+
+            print("3. Memory Information:")
+            memory_info = self.get_gpu_memory_info()
+            if "error" not in memory_info:
+                for key, value in memory_info.items():
+                    if isinstance(value, float):
+                        print(f"  {key}: {value:.2f}")
+                    else:
+                        print(f"  {key}: {value}")
+            print()
 
         print(f"Initializing WBOE RAG Pipeline with backend: {self.backend}")
         # Load documents from the vector store
@@ -184,7 +201,7 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
 
 
 if __name__ == "__main__":
-    wboe_embeddings = WboeRAGPipeline(
+    model_handler = WboeRAGPipeline(
         backend="llama_cpp",
         # hf_model="lmstudio-community/Llama-3.3-70B-Instruct-GGUF",
         # hf_model_fn="Llama-3.3-70B-Instruct-Q4_K_M.gguf",
@@ -201,9 +218,27 @@ if __name__ == "__main__":
             "prompt3.txt",
             "prompt4.txt"
         ],
+        keywords_to_process=[
+            "43218__Gefrette_Simplex",
+        ],
         max_context_length=128000,
-        available_gpu_memory=80,
-        model_memory_usage=4,
+        model_memory_usage=4.0,
         output_dir="output",
+        gpu_memory_threshold=0.9,  # Use max 90% of GPU memory
+        enable_memory_monitoring=True,
+        aggressive_cleanup=True,
+        retry_on_oom=True
     )
-    wboe_embeddings.main()
+
+    model_handler.main()
+    # keywords_to_process=[
+    #     "44358__geilig_Simplex",
+    #     "43221__gockert_Simplex",
+    #     "44375__Käue_Simplex",
+    #     "44224__Köder_Simplex",
+    #     "44394__Keife_Simplex",
+    #     "44376__käuen_Simplex",
+    #     "44399__kenten_Simplex",
+    #     "44370__kardätschen_Simplex",
+    #     "44223__ködern_Simplex"
+    # ],

@@ -307,7 +307,7 @@ async def process_rag_pipeline(
     # Check required environment variables
     required_env_vars = {
         "ollama": "OLLAMA_API_KEY",
-        "llama_cpp": "HUGGINGFACE_API_KEY", 
+        "llama_cpp": "HUGGINGFACE_API_KEY",
         "openAI": "OPENAI_API_KEY"
     }
 

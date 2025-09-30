@@ -76,6 +76,21 @@ class WboeLoadModels(BaseModel):
         if not self.openai_api_key and self.backend == "openAI":
             raise ValueError("OpenAI API key must be set.")
 
+    # def load_openai_tokenizer(self):
+    #     """Loads the OpenAI tokenizer."""
+    #     from transformers import AutoTokenizer
+    #     model_name: str = self.openai_model
+
+    #     if not model_name:
+    #         raise ValueError("OpenAI model is not specified.")
+
+    #     try:
+    #         tokenizer = AutoTokenizer.from_pretrained(model_name)
+    #         return tokenizer
+    #     except Exception as e:
+    #         logfire.info(f"Error loading tokenizer: {e}")
+    #         raise e
+
     def load_openai_model(self):
         """Loads the OpenAI model."""
         from langchain.chat_models import ChatOpenAI
@@ -412,9 +427,6 @@ class WboeLoadModels(BaseModel):
         backend: str = self.backend
 
         match backend:
-            case "openAI":
-                self.tokenizer = self.load_openai_model()
-
             case "ollama":
                 self.tokenizer = self.load_ollama_embeddings_function()
 
@@ -637,6 +649,9 @@ class WboeLoadModels(BaseModel):
                     raise ValueError(f"Input file {file} is empty.")
 
             match backend:
+                case "openAI":
+                    logfire.info("OpenAI backend selected, skipping token count for files.")
+                    tokens = 0  # Skip token counting for OpenAI
                 case "ollama":
                     tokens = len(tokenizer.embed_query(text.encode("utf-8")))
                 case "llama_cpp":
@@ -724,7 +739,7 @@ class WboeLoadModels(BaseModel):
 
                     try:
                         with open(fn, "w") as file:
-                            json.dump(response, file, indent=4)
+                            file.write(response)
                         logfire.info(f"14: Response saved to {fn}")
                     except Exception as e:
                         logfire.info(f"Error writing response to file: {e}")
@@ -733,7 +748,7 @@ class WboeLoadModels(BaseModel):
                 with logfire.span("update conversation messages:"):
                     try:
                         self.update_conversation_messages(
-                            new_message=response["content"],
+                            new_message=response,
                             role="assistant"
                         )
                     except Exception as e:
@@ -748,11 +763,11 @@ class WboeLoadModels(BaseModel):
             total_pipeline_duration.record(elapsed_time_total)
             self.conversation_messages.append({
                 "role": "system",
-                "content": "Ollama generation completed.",
+                "content": "OpenAI generation completed.",
                 "elapsed_time_seconds": elapsed_time_total
             })
             logfire.info("11: System Msg. added.")
-            logfire.info("Ollama generation completed.")
+            logfire.info("OpenAI generation completed.")
 
     def ollama(self) -> None:
         """Generates responses using the Ollama LLM."""

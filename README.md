@@ -32,6 +32,7 @@ Create a `.env` file with your API keys:
 OLLAMA_API_KEY=your_jwt_token_here
 HUGGINGFACE_API_KEY=your_hf_token_here
 LOGFIRE_TOKEN=your_logfire_token_here
+OPENAI_API_KEY=your_openai_key_here
 ```
 
 ### Basic Usage

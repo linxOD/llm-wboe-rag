@@ -1,4 +1,4 @@
-# WBOE Vectorstore Word Embeddings with FastAPI
+# WBOE RAG Pipeline with FastAPI
 
 A sophisticated Retrieval-Augmented Generation (RAG) pipeline for processing Austrian dialect dictionary entries using multiple language model backends with advanced memory management, vector database integration, and a FastAPI web service.
 

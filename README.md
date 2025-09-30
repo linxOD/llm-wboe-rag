@@ -1,4 +1,4 @@
-# WBOE Vectorstore Word Embeddings
+# WBOE RAG Pipeline
 
 A sophisticated Retrieval-Augmented Generation (RAG) pipeline for processing Austrian dialect dictionary entries using multiple language model backends with advanced memory management and vector database integration.
 

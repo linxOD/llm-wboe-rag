@@ -17,12 +17,14 @@ from typing import Union, Literal
 
 class WboeLoadModels(BaseModel):
 
-    backend: Literal["ollama", "llama_cpp"] = "ollama"
+    backend: Literal["ollama", "llama_cpp", "openAI"] = "ollama"
+    openai_model: str = "gpt-4"
     hf_model: str = "lmstudio-community/Llama-3.3-70B-Instruct-GGUF"
     hf_model_fn: str = "Llama-3.3-70B-Instruct-Q4_K_M.gguf"
     ollama_model: str = "llama3.3:latest"
     jwt_token: str = os.getenv("OLLAMA_API_KEY")
     hf_token: str = os.getenv("HUGGINGFACE_API_KEY")
+    openai_api_key: str = os.getenv("OPENAI_API_KEY")
     user_input: list[str] = ["prompt1.txt", "prompt2.txt", "prompt3.txt"]
     keyword: str = "keusch",
     max_context_length: int = 128000
@@ -34,7 +36,6 @@ class WboeLoadModels(BaseModel):
     output_dir: str = "output"
     model: object = None
     tokenizer: object = None
-    pipe: object = None
     inputs: str = ""
     conversation_messages: list[dict[str, str]] = []
     user_context_length: int = 0
@@ -71,6 +72,38 @@ class WboeLoadModels(BaseModel):
 
         if not self.hf_token and self.backend == "llama_cpp":
             raise ValueError("JWT token for Hugging Face API must be set.")
+
+        if not self.openai_api_key and self.backend == "openAI":
+            raise ValueError("OpenAI API key must be set.")
+
+    def load_openai_model(self):
+        """Loads the OpenAI model."""
+        from langchain.chat_models import ChatOpenAI
+        model_name: str = self.openai_model
+        api_key: str = self.openai_api_key
+        temperature: float = 0.7
+        top_p: float = 0.9
+        max_tokens: int = None
+        timeout: int = None
+        max_retries: int = 2
+
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is not set.")
+
+        if not model_name:
+            raise ValueError("OpenAI model is not specified.")
+
+        llm = ChatOpenAI(
+            model_name=model_name,
+            openai_api_key=api_key,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
+
+        return llm
 
     def load_ollama_embeddings_function(self):
         """Loads the Ollama embeddings function."""
@@ -244,10 +277,6 @@ class WboeLoadModels(BaseModel):
             del self.tokenizer
             self.tokenizer = None
 
-        if self.pipe is not None:
-            del self.pipe
-            self.pipe = None
-
         # Clear other references to free memory
         self.user_input = None
         self.keyword = None
@@ -264,8 +293,8 @@ class WboeLoadModels(BaseModel):
 
         logfire.info("Memory cleared successfully")
 
-    def generate_ollama(self) -> str:
-        """Generates a response using the Ollama LLM."""
+    def generate_openai(self) -> str:
+        """Generates a response using the OpenAI LLM."""
         model = self.model
         conversation_messages: list[dict[str, str]] = self.conversation_messages
 
@@ -276,19 +305,13 @@ class WboeLoadModels(BaseModel):
             logfire.info("Error accessing LLM response")
             return ""
 
-    def generate_huggingface(self) -> str:
-        """Generates a response using the Hugging Face LLM."""
-        pipe = self.pipe
-
-        # llama_sepecial_tokens = {
-        #     "eot_id": "<|eot_id|>",
-        #     "start_header_id": "<|start_header_id|>",
-        #     "end_header_id": "<|end_header_id|>",
-        #     "begin_of_text": "<|begin_of_text|>"
-        # }
+    def generate_ollama(self) -> str:
+        """Generates a response using the Ollama LLM."""
+        model = self.model
+        conversation_messages: list[dict[str, str]] = self.conversation_messages
 
         try:
-            return pipe.invoke(self.conversation_messages)
+            return model.invoke(conversation_messages)
 
         except (IndexError, AttributeError):
             logfire.info("Error accessing LLM response")
@@ -389,6 +412,9 @@ class WboeLoadModels(BaseModel):
         backend: str = self.backend
 
         match backend:
+            case "openAI":
+                self.tokenizer = self.load_openai_model()
+
             case "ollama":
                 self.tokenizer = self.load_ollama_embeddings_function()
 
@@ -429,10 +455,6 @@ class WboeLoadModels(BaseModel):
         if hasattr(self, 'model') and self.model is not None:
             del self.model
             self.model = None
-
-        if hasattr(self, 'pipe') and self.pipe is not None:
-            del self.pipe
-            self.pipe = None
 
         # Force garbage collection
         gc.collect()
@@ -645,6 +667,93 @@ class WboeLoadModels(BaseModel):
         logfire.info(f"User input context has {tokens} tokens.")
         return len(tokens), tokens
 
+    def openai(self) -> None:
+        """Generates responses using the OpenAI LLM."""
+        user_prompts: list[str] = self.user_input
+        inputs: str = self.inputs
+        total_pipeline_duration = logfire.metric_histogram(
+            "total_pipeline_duration_ms",
+            unit="ms",
+            description="Duration of total pipeline processing in milliseconds",
+        )
+        # count time
+        start_time_total = time.perf_counter()
+        logfire.info("5: Starting OpenAI generation...")
+
+        with logfire.span("create conversation messages:"):
+            self.conversation_messages = self.create_conversation_messages()
+            self.update_conversation_messages(new_message=inputs, role="user")
+            logfire.info("6: System Msg. and Inputs set.")
+
+        with logfire.span("process prompt files:"):
+            prompts_info = self.validate_user_input_files()
+
+        with logfire.span("Load OpenAI model:"):
+            self.model = self.load_ollama_model()
+
+        with logfire.span("process each prompt file:"):
+            for i, file in enumerate(user_prompts):
+                logfire.info(f"Processing prompt {i + 1}/{len(user_prompts)}")
+                fn_load = os.path.basename(file)
+
+                with logfire.span("update conversation messages:"):
+                    text = prompts_info[fn_load]["content"]
+                    # text_tokens = prompts_info[fn_load]["tokens"]  # number of tokens in the prompt
+                    self.update_conversation_messages(
+                        new_message=text,
+                        role="user"
+                    )
+                    logfire.info("10: Adding User prompt to messages.")
+
+                try:
+                    logfire.info("11: Generating response...")
+                    response = self.generate_openai()
+                    logfire.info("12: Response gernerated.")
+                except Exception as e:
+                    logfire.info(f"Error generating response: {e}")
+                    response = "Error generating response."
+
+                with logfire.span("Saving response to file:"):
+                    logfire.info("13: Saving response...")
+                    fn_prompt = file.split("/")[-1].replace(".txt", "")
+                    fn_model = self.openai_model.replace("/", "-")
+                    fn_out_dir = self.output_dir
+                    fn_keyword = self.keyword
+                    fn_name = f"{fn_keyword}_{fn_prompt}_{fn_model}.txt"
+                    fn = os.path.join(fn_out_dir, fn_name)
+
+                    try:
+                        with open(fn, "w") as file:
+                            json.dump(response, file, indent=4)
+                        logfire.info(f"14: Response saved to {fn}")
+                    except Exception as e:
+                        logfire.info(f"Error writing response to file: {e}")
+                        logfire.info("Response:", response)
+
+                with logfire.span("update conversation messages:"):
+                    try:
+                        self.update_conversation_messages(
+                            new_message=response["content"],
+                            role="assistant"
+                        )
+                    except Exception as e:
+                        logfire.info(f"Error updating conversation messages: {e}")
+                sleep(5)
+
+        with logfire.span(f"Completing generation for keyword: {self.keyword}"):
+            # count time
+            end_time_total = time.perf_counter()
+            elapsed_time_total = (end_time_total - start_time_total)
+            logfire.info(f"Time taken to process {file}: {elapsed_time_total:.2f} seconds")
+            total_pipeline_duration.record(elapsed_time_total)
+            self.conversation_messages.append({
+                "role": "system",
+                "content": "Ollama generation completed.",
+                "elapsed_time_seconds": elapsed_time_total
+            })
+            logfire.info("11: System Msg. added.")
+            logfire.info("Ollama generation completed.")
+
     def ollama(self) -> None:
         """Generates responses using the Ollama LLM."""
         reserved_prompt_length: int = self.reserved_prompt_length
@@ -742,8 +851,11 @@ class WboeLoadModels(BaseModel):
             elapsed_time_total = (end_time_total - start_time_total)
             logfire.info(f"Time taken to process {file}: {elapsed_time_total:.2f} seconds")
             total_pipeline_duration.record(elapsed_time_total)
-            self.conversation_messages.append(
-                {"role": "system", "content": "Ollama generation completed.", "elapsed_time_seconds": elapsed_time_total})
+            self.conversation_messages.append({
+                "role": "system",
+                "content": "Ollama generation completed.",
+                "elapsed_time_seconds": elapsed_time_total
+            })
             logfire.info("11: System Msg. added.")
             logfire.info("Ollama generation completed.")
 

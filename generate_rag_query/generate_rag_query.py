@@ -5,7 +5,7 @@ from time import sleep, strftime
 from utils.load_models import WboeLoadModels
 from utils.load_vectorestore_documents import WboeLoadVectorstore
 from pydantic import BaseModel
-from typing import Literal
+from typing import Literal, Dict, Any
 
 # Configure Logfire for logging
 if os.getenv("LOGFIRE_TOKEN") is None:
@@ -18,7 +18,7 @@ class WboeBaseRAG(BaseModel):
     # Common attributes and configuration
     context: dict[str, str] = {}
     keywords_to_process: list[str] = []
-    backend: Literal["ollama", "llama_cpp"] = "ollama"
+    backend: Literal["ollama", "llama_cpp", "openAI"] = "ollama"
     embeddings: int = 0
     model_memory_usage: float = 44.0  # in GB, for the model itself
     conversations: list[dict[str, str]] = []
@@ -33,11 +33,11 @@ class WboeBaseRAG(BaseModel):
 
         if not self.backend:
             raise ValueError("Backend must be specified.\
-                Supported backends are: 'ollama', 'llama_cpp'.")
+                Supported backends are: 'ollama', 'llama_cpp', 'openAI'.")
 
-        if self.backend not in ["ollama", "llama_cpp"]:
+        if self.backend not in ["ollama", "llama_cpp", "openAI"]:
             raise ValueError(f"Unsupported backend: {self.backend}.\
-                Supported backends are: 'ollama', 'llama_cpp'.")
+                Supported backends are: 'ollama', 'llama_cpp', 'openAI'.")
 
 
 class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
@@ -58,11 +58,17 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
         if not self.ollama_model and self.backend == "ollama":
             raise ValueError("Ollama model must be specified.")
 
+        if not self.openai_model and self.backend == "openAI":
+            raise ValueError("OpenAI model must be specified.")
+
         if not self.jwt_token and self.backend == "ollama":
             raise ValueError("JWT token for Ollama API must be set.")
 
         if not self.hf_token and self.backend == "llama_cpp":
             raise ValueError("JWT token for Hugging Face API must be set.")
+
+        if not self.openai_model and self.backend == "openAI":
+            raise ValueError("OpenAI model must be specified.")
 
         if not self.collection_name:
             raise ValueError("Collection name for the vector store must be\
@@ -203,6 +209,11 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
                     continue
 
                 match backend:
+                    case "openAI":
+                        logfire.info("Using OpenAI model for word embeddings.")
+                        logfire.info(f"Using OpenAI model: {self.openai_model}")
+                        self.openai()
+
                     case "ollama":
                         logfire.info("Using Ollama model for word embeddings.")
                         logfire.info(f"Using Ollama model: {self.ollama_model}")
@@ -222,7 +233,7 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
                 logfire.info(f"Processed document: {doc['keyword']} successfully.")
                 sleep(5)
 
-    def main(self) -> None:
+    def main(self) -> Dict[str, Any]:
         """Main method to run the RAG pipeline."""
 
         logfire.info("Starting WBOE RAG Pipeline")
@@ -265,10 +276,20 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
             self.unloading_models_and_clear_up_memory()
             logfire.info("Vector store unloaded and cleared up memory successfully.")
 
+        # Return results summary
+        return {
+            "status": "completed",
+            "conversations": self.conversations,
+            "total_documents_processed": len(self.conversations),
+            "backend_used": self.backend,
+            "output_directory": self.output_dir
+        }
+
 
 if __name__ == "__main__":
     model_handler = WboeRAGPipeline(
         backend="llama_cpp",
+        openai_model="gpt-4o",
         # hf_model="lmstudio-community/Llama-3.3-70B-Instruct-GGUF",
         # hf_model_fn="Llama-3.3-70B-Instruct-Q4_K_M.gguf",
         hf_model="bartowski/Llama-3.2-3B-Instruct-GGUF",
@@ -276,8 +297,6 @@ if __name__ == "__main__":
         ollama_model="llama3.2:3b",
         collection_name="wboe_word_embeddings",
         vector_store_filepath_name="chroma_langchain_db_wboe_embeddings",
-        jwt_token=os.getenv("OLLAMA_API_KEY"),
-        hf_token=os.getenv("HUGGINGFACE_API_KEY"),
         user_input=[
             "prompt1.txt",
             "prompt2.txt",

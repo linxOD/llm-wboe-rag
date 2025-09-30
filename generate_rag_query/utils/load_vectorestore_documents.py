@@ -45,9 +45,8 @@ class WboeLoadVectorstore(BaseModel):
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir, exist_ok=True)
 
-    def unloading_models_and_clear_up_memory(self) -> None:
-        """Unloads the Hugging Face model and tokenizer.
-        This is necessary to free up GPU memory."""
+    def unloading_vector_store_and_clear_up_memory(self) -> None:
+        """Unloads the vector store and clears up memory."""
 
         self.vector_store = None
 

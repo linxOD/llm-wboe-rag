@@ -93,11 +93,11 @@ class WboeLoadModels(BaseModel):
 
     def load_openai_model(self):
         """Loads the OpenAI model."""
-        from langchain.chat_models import ChatOpenAI
+        from langchain_openai import ChatOpenAI
         model_name: str = self.openai_model
         api_key: str = self.openai_api_key
-        temperature: float = 0.7
-        top_p: float = 0.9
+        # temperature: float = 0.7
+        # top_p: float = 0.9
         max_tokens: int = None
         timeout: int = None
         max_retries: int = 2
@@ -111,8 +111,8 @@ class WboeLoadModels(BaseModel):
         llm = ChatOpenAI(
             model_name=model_name,
             openai_api_key=api_key,
-            temperature=temperature,
-            top_p=top_p,
+            # temperature=temperature,  # not supported for GPT-5
+            # top_p=top_p,  # not supported for GPT-5
             max_tokens=max_tokens,
             timeout=timeout,
             max_retries=max_retries,
@@ -704,7 +704,7 @@ class WboeLoadModels(BaseModel):
             prompts_info = self.validate_user_input_files()
 
         with logfire.span("Load OpenAI model:"):
-            self.model = self.load_ollama_model()
+            self.model = self.load_openai_model()
 
         with logfire.span("process each prompt file:"):
             for i, file in enumerate(user_prompts):
@@ -739,7 +739,7 @@ class WboeLoadModels(BaseModel):
 
                     try:
                         with open(fn, "w") as file:
-                            file.write(response)
+                            file.write(response.text())
                         logfire.info(f"14: Response saved to {fn}")
                     except Exception as e:
                         logfire.info(f"Error writing response to file: {e}")
@@ -748,7 +748,7 @@ class WboeLoadModels(BaseModel):
                 with logfire.span("update conversation messages:"):
                     try:
                         self.update_conversation_messages(
-                            new_message=response,
+                            new_message=response.text(),
                             role="assistant"
                         )
                     except Exception as e:
@@ -1071,16 +1071,17 @@ class WboeLoadModels(BaseModel):
                     logfire.info("Waiting for memory stabilization...")
                     sleep(3)
 
-        # count time
-        end_time_total = time.perf_counter()
-        elapsed_time_total = (end_time_total - start_time_total)
-        total_pipeline_duration.record(elapsed_time_total)
-        self.conversation_messages.append({
-            "role": "system",
-            "content": "LlamaCpp generation completed.",
-            "elapsed_time_seconds": elapsed_time_total
-        })
+        with logfire.span(f"Completing generation for keyword: {self.keyword}"):
+            # count time
+            end_time_total = time.perf_counter()
+            elapsed_time_total = (end_time_total - start_time_total)
+            total_pipeline_duration.record(elapsed_time_total)
+            self.conversation_messages.append({
+                "role": "system",
+                "content": "LlamaCpp generation completed.",
+                "elapsed_time_seconds": elapsed_time_total
+            })
 
-        logfire.info("=== LlamaCpp generation completed ===")
-        self.print_gpu_memory_status("Final GPU Memory - ")
-        logfire.info(f"Total time taken for LlamaCpp generation: {elapsed_time_total:.2f} seconds")
+            logfire.info("=== LlamaCpp generation completed ===")
+            self.print_gpu_memory_status("Final GPU Memory - ")
+            logfire.info(f"Total time taken for LlamaCpp generation: {elapsed_time_total:.2f} seconds")

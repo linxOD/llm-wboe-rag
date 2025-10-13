@@ -103,9 +103,6 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
         output_stats = {
             "pipeline_config": {
                 "backend": self.backend,
-                "ollama_model": self.ollama_model,
-                "hf_model": self.hf_model,
-                "hf_model_fn": self.hf_model_fn,
                 "max_context_length": self.max_context_length,
                 "model_memory_usage": self.model_memory_usage,
                 "keywords_to_process": self.keywords_to_process,
@@ -137,6 +134,12 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
                 ),
             }
         }
+        model = {
+            "ollama": self.ollama_model,
+            "llama_cpp": self.hf_model_fn,
+            "openAI": self.openai_model
+        }
+        output_stats["pipeline_config"]["model_used"] = model.get(self.backend, "unknown")
 
         fn_time = strftime("%Y%m%d_%H%M%S")
         if not os.path.exists(self.output_dir):

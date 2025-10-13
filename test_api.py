@@ -171,7 +171,7 @@ def test_invalid_backend() -> bool:
         return False
 
 
-def main():
+def main(backend: str = "ollama") -> int:
     """Run all tests."""
     print("🧪 WBOE RAG Pipeline API Test Suite")
     print("=" * 50)
@@ -197,15 +197,10 @@ def main():
         tests_passed += 1
 
     # Determine which backend to test based on environment
-    import os
     backend_to_test = None
 
-    if os.getenv("OLLAMA_API_KEY"):
-        backend_to_test = "ollama"
-    elif os.getenv("OPENAI_API_KEY"):
-        backend_to_test = "openAI"
-    elif os.getenv("HUGGINGFACE_API_KEY"):
-        backend_to_test = "llama_cpp"
+    if backend:
+        backend_to_test = backend
 
     if backend_to_test:
         print(f"\n🎯 Testing {backend_to_test} backend (API key found)...")
@@ -238,4 +233,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main("llama_cpp"))

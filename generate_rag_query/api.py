@@ -222,6 +222,7 @@ async def run_rag_pipeline(task_id: str, request: RAGPipelineRequest) -> None:
             "statistics": {
                 "total_documents_processed": len(model_handler.conversations),
                 "total_user_inputs": len(request.user_input),
+                "total_keywords": len(request.keywords_to_process) if request.keywords_to_process else "all"
             },
             "output_directory": request.output_dir
         }

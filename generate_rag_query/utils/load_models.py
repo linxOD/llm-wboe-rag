@@ -17,7 +17,8 @@ from typing import Union, Literal
 
 class WboeLoadModels(BaseModel):
 
-    backend: Literal["ollama", "llama_cpp", "openAI"] = "ollama"
+    backend: Literal["ollama", "llama_cpp", "openAI", "anthropic"] = "ollama"
+    anthropic_model: str = "claude-2"
     openai_model: str = "gpt-4"
     hf_model: str = "lmstudio-community/Llama-3.3-70B-Instruct-GGUF"
     hf_model_fn: str = "Llama-3.3-70B-Instruct-Q4_K_M.gguf"
@@ -25,6 +26,7 @@ class WboeLoadModels(BaseModel):
     jwt_token: str = os.getenv("OLLAMA_API_KEY")
     hf_token: str = os.getenv("HUGGINGFACE_API_KEY")
     openai_api_key: str = os.getenv("OPENAI_API_KEY")
+    anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY")
     user_input: list[str] = ["prompt1.txt", "prompt2.txt", "prompt3.txt"]
     keyword: str = "keusch",
     max_context_length: int = 128000
@@ -76,6 +78,9 @@ class WboeLoadModels(BaseModel):
         if not self.openai_api_key and self.backend == "openAI":
             raise ValueError("OpenAI API key must be set.")
 
+        if not self.anthropic_api_key and self.backend == "anthropic":
+            raise ValueError("Anthropic API key must be set.")
+
     # def load_openai_tokenizer(self):
     #     """Loads the OpenAI tokenizer."""
     #     from transformers import AutoTokenizer
@@ -90,6 +95,40 @@ class WboeLoadModels(BaseModel):
     #     except Exception as e:
     #         logfire.info(f"Error loading tokenizer: {e}")
     #         raise e
+
+    def load_anthropic_model(self):
+        """Loads the Anthropic model."""
+        from langchain_anthropic import ChatAnthropic
+        model_name: str = self.anthropic_model
+        api_key: str = self.anthropic_api_key
+        temperature: float = 0.7
+        top_p: float = 0.9
+        max_tokens: int = None
+        timeout: int = None
+        max_retries: int = 2
+        thinking: dict = {
+            "enabled": False,
+            "budget_tokens": 10_000,
+        }
+
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY environment variable is not set.")
+
+        if not model_name:
+            raise ValueError("Anthropic model is not specified.")
+
+        llm = ChatAnthropic(
+            model=model_name,
+            anthropic_api_key=api_key,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            max_retries=max_retries,
+            thinking=thinking,
+        )
+
+        return llm
 
     def load_openai_model(self):
         """Loads the OpenAI model."""
@@ -307,6 +346,18 @@ class WboeLoadModels(BaseModel):
             torch.cuda.synchronize()
 
         logfire.info("Memory cleared successfully")
+
+    def generate_anthropic(self) -> str:
+        """Generates a response using the Anthropic LLM."""
+        model = self.model
+        conversation_messages: list[dict[str, str]] = self.conversation_messages
+
+        try:
+            return model.invoke(conversation_messages)
+
+        except (IndexError, AttributeError):
+            logfire.info("Error accessing LLM response")
+            return ""
 
     def generate_openai(self) -> str:
         """Generates a response using the OpenAI LLM."""
@@ -682,6 +733,128 @@ class WboeLoadModels(BaseModel):
         logfire.info(f"User input context has {tokens} tokens.")
         return len(tokens), tokens
 
+    def process(self) -> None:
+        """Processes the user input and generates responses
+        based on the selected backend."""
+
+        backend: str = self.backend
+        anthropic_model: str = self.anthropic_model
+        openai_model: str = self.openai_model
+        ollama_model: str = self.ollama_model
+        hf_model: str = self.hf_model
+        hf_model_fn: str = self.hf_model_fn
+        logfire.info(f"Selected backend: {backend}")
+
+        match backend:
+            case "anthropic":
+                logfire.info("Using Anthropic model for word embeddings.")
+                logfire.info(f"Using Anthropic model: {anthropic_model}")
+                self.anthropic()
+
+            case "openAI":
+                logfire.info("Using OpenAI model for word embeddings.")
+                logfire.info(f"Using OpenAI model: {openai_model}")
+                self.openai()
+
+            case "ollama":
+                logfire.info("Using Ollama model for word embeddings.")
+                logfire.info(f"Using Ollama model: {ollama_model}")
+                self.ollama()
+
+            case "llama_cpp":
+                logfire.info("4: Using Llama CPP model for word embeddings.")
+                logfire.info(f"Using Llama CPP model: {hf_model}")
+                logfire.info(f"Using Llama CPP model file: {hf_model_fn}")
+                self.llama_cpp()
+            case _:
+                raise ValueError(f"Unsupported backend: {backend}")
+
+    def anthropic(self) -> None:
+        """Generates responses using the Anthropic LLM."""
+        user_prompts: list[str] = self.user_input
+        inputs: str = self.inputs
+        total_pipeline_duration = logfire.metric_histogram(
+            "total_pipeline_duration_ms",
+            unit="ms",
+            description="Duration of total pipeline processing in milliseconds",
+        )
+        # count time
+        start_time_total = time.perf_counter()
+        logfire.info("5: Starting Anthropic generation...")
+
+        with logfire.span("create conversation messages:"):
+            self.conversation_messages = self.create_conversation_messages()
+            self.update_conversation_messages(new_message=inputs, role="user")
+            logfire.info("6: System Msg. and Inputs set.")
+
+        with logfire.span("process prompt files:"):
+            prompts_info = self.validate_user_input_files()
+
+        with logfire.span("Load Anthropic model:"):
+            self.model = self.load_anthropic_model()
+
+        with logfire.span("process each prompt file:"):
+            for i, file in enumerate(user_prompts):
+                logfire.info(f"Processing prompt {i + 1}/{len(user_prompts)}")
+                fn_load = os.path.basename(file)
+
+                with logfire.span("update conversation messages:"):
+                    text = prompts_info[fn_load]["content"]
+                    # text_tokens = prompts_info[fn_load]["tokens"]  # number of tokens in the prompt
+                    self.update_conversation_messages(
+                        new_message=text,
+                        role="user"
+                    )
+                    logfire.info("10: Adding User prompt to messages.")
+
+                try:
+                    logfire.info("11: Generating response...")
+                    response = self.generate_anthropic()
+                    logfire.info("12: Response gernerated.")
+                except Exception as e:
+                    logfire.info(f"Error generating response: {e}")
+                    response = "Error generating response."
+
+                with logfire.span("Saving response to file:"):
+                    logfire.info("13: Saving response...")
+                    fn_prompt = file.split("/")[-1].replace(".txt", "")
+                    fn_model = self.anthropic_model.replace("/", "-")
+                    fn_out_dir = self.output_dir
+                    fn_keyword = self.keyword
+                    fn_name = f"{fn_keyword}_{fn_prompt}_{fn_model}.txt"
+                    fn = os.path.join(fn_out_dir, fn_name)
+
+                    try:
+                        with open(fn, "w") as file:
+                            file.write(response.text())
+                        logfire.info(f"14: Response saved to {fn}")
+                    except Exception as e:
+                        logfire.info(f"Error writing response to file: {e}")
+                        logfire.info("Response:", response)
+                with logfire.span("update conversation messages:"):
+                    try:
+                        self.update_conversation_messages(
+                            new_message=response.text(),
+                            role="assistant"
+                        )
+                    except Exception as e:
+                        logfire.info(f"Error updating conversation messages: {e}")
+                sleep(5)
+
+        with logfire.span(f"Completing generation for keyword: {self.keyword}"):
+            # count time
+            end_time_total = time.perf_counter()
+            elapsed_time_total = (end_time_total - start_time_total)
+            logfire.info(f"Time taken to process {file}: {elapsed_time_total:.2f} seconds")
+            total_pipeline_duration.record(elapsed_time_total)
+            self.conversation_messages.append({
+                "role": "system",
+                "content": "Anthropic generation completed.",
+                "elapsed_time_seconds": elapsed_time_total
+            })
+            logfire.info("11: System Msg. added.")
+            logfire.info("Anthropic generation completed.")
+
     def openai(self) -> None:
         """Generates responses using the OpenAI LLM."""
         user_prompts: list[str] = self.user_input
@@ -1028,8 +1201,8 @@ class WboeLoadModels(BaseModel):
 
                     # count time
                     end_time = time.perf_counter()
-                    elapsed_time = (end_time - start_time) * 1000  # convert to milliseconds
-                    logfire.info(f"Time taken to process {file}: {elapsed_time:.2f} ms")
+                    elapsed_time = (end_time - start_time)
+                    logfire.info(f"Time taken to process {file}: {elapsed_time:.2f} seconds")
                     response["elapsed_time"] = elapsed_time
                     inference_duration.record(elapsed_time)
 

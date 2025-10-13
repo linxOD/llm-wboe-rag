@@ -18,7 +18,7 @@ class WboeBaseRAG(BaseModel):
     # Common attributes and configuration
     context: dict[str, str] = {}
     keywords_to_process: list[str] = []
-    backend: Literal["ollama", "llama_cpp", "openAI"] = "ollama"
+    backend: Literal["ollama", "llama_cpp", "openAI", "anthropic"] = "ollama"
     embeddings: int = 0
     model_memory_usage: float = 44.0  # in GB, for the model itself
     conversations: list[dict[str, str]] = []
@@ -33,9 +33,9 @@ class WboeBaseRAG(BaseModel):
 
         if not self.backend:
             raise ValueError("Backend must be specified.\
-                Supported backends are: 'ollama', 'llama_cpp', 'openAI'.")
+                Supported backends are: 'ollama', 'llama_cpp', 'openAI', 'anthropic'.")
 
-        if self.backend not in ["ollama", "llama_cpp", "openAI"]:
+        if self.backend not in ["ollama", "llama_cpp", "openAI", "anthropic"]:
             raise ValueError(f"Unsupported backend: {self.backend}.\
                 Supported backends are: 'ollama', 'llama_cpp', 'openAI'.")
 
@@ -69,6 +69,9 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
 
         if not self.openai_model and self.backend == "openAI":
             raise ValueError("OpenAI model must be specified.")
+
+        if not self.anthropic_model and self.backend == "anthropic":
+            raise ValueError("Anthropic model must be specified.")
 
         if not self.collection_name:
             raise ValueError("Collection name for the vector store must be\
@@ -137,7 +140,8 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
         model = {
             "ollama": self.ollama_model,
             "llama_cpp": self.hf_model_fn,
-            "openAI": self.openai_model
+            "openAI": self.openai_model,
+            "anthropic": self.anthropic_model
         }
         output_stats["pipeline_config"]["model_used"] = model.get(self.backend, "unknown")
 
@@ -192,7 +196,6 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
         self.max_context_length = self.calc_max_context_length()
         logfire.info(f"1: Max. context length calculated: {self.max_context_length}")
         context: dict[str, str] = self.context
-        backend: str = self.backend
 
         with logfire.span("iterate documents for llm context"):
             for doc in context:
@@ -211,22 +214,8 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
                     logfire.info(f"Error processing document {doc['keyword']}: {e}")
                     continue
 
-                match backend:
-                    case "openAI":
-                        logfire.info("Using OpenAI model for word embeddings.")
-                        logfire.info(f"Using OpenAI model: {self.openai_model}")
-                        self.openai()
-
-                    case "ollama":
-                        logfire.info("Using Ollama model for word embeddings.")
-                        logfire.info(f"Using Ollama model: {self.ollama_model}")
-                        self.ollama()
-
-                    case "llama_cpp":
-                        logfire.info("4: Using Llama CPP model for word embeddings.")
-                        logfire.info(f"Using Llama CPP model: {self.hf_model}")
-                        logfire.info(f"Using Llama CPP model file: {self.hf_model_fn}")
-                        self.llama_cpp()
+                with logfire.span("start inference generation"):
+                    self.process()
 
                 # save chat history to a file
                 with logfire.span("save chat history"):
@@ -293,6 +282,7 @@ if __name__ == "__main__":
     model_handler = WboeRAGPipeline(
         backend="llama_cpp",
         openai_model="gpt-4o",
+        anthropic_model="claude-2",
         # hf_model="lmstudio-community/Llama-3.3-70B-Instruct-GGUF",
         # hf_model_fn="Llama-3.3-70B-Instruct-Q4_K_M.gguf",
         hf_model="bartowski/Llama-3.2-3B-Instruct-GGUF",

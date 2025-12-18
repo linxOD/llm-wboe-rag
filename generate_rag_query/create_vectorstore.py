@@ -20,7 +20,7 @@ class WboeCreateVectorstore(BaseModel):
     collection_name: str = "wboe_word_embeddings"
     vectore_store_dir: str = "chroma_langchain_db_wboe_embeddings"
     documents_path: str = "../dboe-data-prep/output/llm_corpus"
-    documents_file_type: str = "txt"
+    documents_file_type: str = "md"
     jwt_token: str = os.getenv("OLLAMA_API_KEY")
     hf_token: str = os.getenv("HUGGINGFACE_API_KEY")
     keyword: str = "grob"
@@ -228,7 +228,7 @@ if __name__ == "__main__":
         collection_name="wboe_word_embeddings",
         vectore_store_dir="chroma_langchain_db_wboe_embeddings",
         documents_path="./llm_corpus",
-        documents_file_type="txt",
+        documents_file_type="md",
         exclude_files=["none"],
         include_files=["all"],
         jwt_token=os.getenv("OLLAMA_API_KEY"),

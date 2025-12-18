@@ -56,7 +56,7 @@ class RAGPipelineRequest(BaseModel):
 
     # Processing configuration
     user_input: List[str] = Field(
-        default=["prompt1.txt", "prompt2.txt", "prompt3.txt", "prompt4.txt"],
+        default=["prompt1.md", "prompt2.md", "prompt3.md", "prompt4.md", "prompt5.md"],
         description="List of prompt files to use"
     )
     keywords_to_process: List[str] = Field(
@@ -134,111 +134,104 @@ class RAGPipelineResult(BaseModel):
 async def run_rag_pipeline(task_id: str, request: RAGPipelineRequest) -> None:
     """Run the RAG pipeline asynchronously."""
 
-    try:
-        # Update task status
-        running_tasks[task_id]["status"] = "running"
-        running_tasks[task_id]["progress"]["current_step"] = "initializing"
+    # Update task status
+    running_tasks[task_id]["status"] = "running"
+    running_tasks[task_id]["progress"]["current_step"] = "initializing"
 
-        logfire.info(f"Starting RAG Pipeline for task {task_id}")
+    logfire.info(f"Starting RAG Pipeline for task {task_id}")
 
-        # Validate environment variables based on backend
-        if request.backend == "ollama" and not os.getenv("OLLAMA_API_KEY"):
-            raise ValueError("OLLAMA_API_KEY environment variable is required for Ollama backend")
+    # Validate environment variables based on backend
+    if request.backend == "ollama" and not os.getenv("OLLAMA_API_KEY"):
+        raise ValueError("OLLAMA_API_KEY environment variable is required for Ollama backend")
 
-        if request.backend == "llama_cpp" and not os.getenv("HUGGINGFACE_API_KEY"):
-            raise ValueError("HUGGINGFACE_API_KEY environment variable is required for Llama CPP backend")
+    if request.backend == "llama_cpp" and not os.getenv("HUGGINGFACE_API_KEY"):
+        raise ValueError("HUGGINGFACE_API_KEY environment variable is required for Llama CPP backend")
 
-        if request.backend == "openAI" and not os.getenv("OPENAI_API_KEY"):
-            raise ValueError("OPENAI_API_KEY environment variable is required for OpenAI backend")
+    if request.backend == "openAI" and not os.getenv("OPENAI_API_KEY"):
+        raise ValueError("OPENAI_API_KEY environment variable is required for OpenAI backend")
 
-        # Create pipeline instance
-        model_handler = WboeRAGPipeline(
-            backend=request.backend,
-            openai_model=request.openai_model,
-            hf_model=request.hf_model,
-            hf_model_fn=request.hf_model_fn,
-            ollama_model=request.ollama_model,
-            collection_name=request.collection_name,
-            vector_store_filepath_name=request.vector_store_filepath_name,
-            jwt_token=os.getenv("OLLAMA_API_KEY"),
-            openai_api_key=os.getenv("OPENAI_API_KEY"),
-            hf_token=os.getenv("HUGGINGFACE_API_KEY"),
-            user_input=request.user_input,
-            keywords_to_process=request.keywords_to_process,
-            max_context_length=request.max_context_length,
-            model_memory_usage=request.model_memory_usage,
-            output_dir=request.output_dir,
-            gpu_memory_threshold=request.gpu_memory_threshold,
-            enable_memory_monitoring=request.enable_memory_monitoring,
-            aggressive_cleanup=request.aggressive_cleanup,
-            retry_on_oom=request.retry_on_oom
-        )
+    # Create pipeline instance
+    model_handler = WboeRAGPipeline(
+        backend=request.backend,
+        openai_model=request.openai_model,
+        hf_model=request.hf_model,
+        hf_model_fn=request.hf_model_fn,
+        ollama_model=request.ollama_model,
+        collection_name=request.collection_name,
+        vector_store_filepath_name=request.vector_store_filepath_name,
+        jwt_token=os.getenv("OLLAMA_API_KEY"),
+        openai_api_key=os.getenv("OPENAI_API_KEY"),
+        hf_token=os.getenv("HUGGINGFACE_API_KEY"),
+        user_input=request.user_input,
+        keywords_to_process=request.keywords_to_process,
+        max_context_length=request.max_context_length,
+        model_memory_usage=request.model_memory_usage,
+        output_dir=request.output_dir,
+        gpu_memory_threshold=request.gpu_memory_threshold,
+        enable_memory_monitoring=request.enable_memory_monitoring,
+        aggressive_cleanup=request.aggressive_cleanup,
+        retry_on_oom=request.retry_on_oom
+    )
 
-        # Update progress
-        running_tasks[task_id]["progress"]["current_step"] = "memory_handling"
+    # Update progress
+    running_tasks[task_id]["progress"]["current_step"] = "memory_handling"
 
-        # Memory handling
-        model_handler.model_memory_handling()
+    # Memory handling
+    model_handler.model_memory_handling()
 
-        if request.enable_memory_monitoring:
-            logfire.info("Initial Memory Status:")
-            model_handler.print_gpu_memory_status()
-            memory_info = model_handler.get_gpu_memory_info()
-            running_tasks[task_id]["progress"]["memory_info"] = memory_info
+    if request.enable_memory_monitoring:
+        logfire.info("Initial Memory Status:")
+        model_handler.print_gpu_memory_status()
+        memory_info = model_handler.get_gpu_memory_info()
+        running_tasks[task_id]["progress"]["memory_info"] = memory_info
 
-        # Load documents
-        running_tasks[task_id]["progress"]["current_step"] = "loading_documents"
-        logfire.info("Loading documents from the vector store...")
+    # Load documents
+    running_tasks[task_id]["progress"]["current_step"] = "loading_documents"
+    logfire.info("Loading documents from the vector store...")
 
-        model_handler.get_documents()
-        logfire.info("Documents loaded successfully.")
+    model_handler.get_documents()
+    logfire.info("Documents loaded successfully.")
 
-        # Generate responses
-        running_tasks[task_id]["progress"]["current_step"] = "generating_responses"
-        logfire.info("Generating LLM responses...")
+    # Generate responses
+    running_tasks[task_id]["progress"]["current_step"] = "generating_responses"
+    logfire.info("Generating LLM responses...")
 
-        model_handler.generate()
-        logfire.info("RAG pipeline generation completed successfully.")
+    model_handler.generate()
+    logfire.info("RAG pipeline generation completed successfully.")
 
-        # Save chat history
-        running_tasks[task_id]["progress"]["current_step"] = "saving_results"
-        model_handler.save_chat_history()
+    # Save chat history
+    running_tasks[task_id]["progress"]["current_step"] = "saving_results"
+    model_handler.save_chat_history()
 
-        # Cleanup
-        running_tasks[task_id]["progress"]["current_step"] = "cleanup"
-        model_handler.unloading_vector_store_and_clear_up_memory()
-        model_handler.unloading_models_and_clear_up_memory()
+    # Cleanup
+    running_tasks[task_id]["progress"]["current_step"] = "cleanup"
+    model_handler.unloading_vector_store_and_clear_up_memory()
+    model_handler.unloading_models_and_clear_up_memory()
 
-        # Prepare results
-        result = {
-            "pipeline_config": {
-                "backend": request.backend,
-                "ollama_model": request.ollama_model,
-                "hf_model": request.hf_model,
-                "max_context_length": request.max_context_length,
-                "keywords_processed": len(request.keywords_to_process) if request.keywords_to_process else "all"
-            },
-            "conversations": model_handler.conversations,
-            "statistics": {
-                "total_documents_processed": len(model_handler.conversations),
-                "total_user_inputs": len(request.user_input),
-                "total_keywords": len(request.keywords_to_process) if request.keywords_to_process else "all"
-            },
-            "output_directory": request.output_dir
-        }
+    # Prepare results
+    result = {
+        "pipeline_config": {
+            "backend": request.backend,
+            "ollama_model": request.ollama_model,
+            "hf_model": request.hf_model,
+            "max_context_length": request.max_context_length,
+            "keywords_processed": len(request.keywords_to_process) if request.keywords_to_process else "all"
+        },
+        "conversations": model_handler.conversations,
+        "statistics": {
+            "total_documents_processed": len(model_handler.conversations),
+            "total_user_inputs": len(request.user_input),
+            "total_keywords": len(request.keywords_to_process) if request.keywords_to_process else "all"
+        },
+        "output_directory": request.output_dir
+    }
 
-        # Update final status
-        running_tasks[task_id]["status"] = "completed"
-        running_tasks[task_id]["result"] = result
-        running_tasks[task_id]["progress"]["current_step"] = "completed"
+    # Update final status
+    running_tasks[task_id]["status"] = "completed"
+    running_tasks[task_id]["result"] = result
+    running_tasks[task_id]["progress"]["current_step"] = "completed"
 
-        logfire.info(f"RAG Pipeline completed successfully for task {task_id}")
-
-    except Exception as e:
-        logfire.error(f"RAG Pipeline failed for task {task_id}: {str(e)}")
-        running_tasks[task_id]["status"] = "failed"
-        running_tasks[task_id]["error"] = str(e)
-        running_tasks[task_id]["progress"]["current_step"] = "failed"
+    logfire.info(f"RAG Pipeline completed successfully for task {task_id}")
 
 
 @asynccontextmanager

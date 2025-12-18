@@ -59,6 +59,7 @@ def test_process_pipeline(backend: str = "ollama") -> str:
     payload = {
         "backend": backend,
         "keywords_to_process": ["43218__Gefrette_Simplex"],  # Process just one document
+        "user_input": ["prompt1.txt"],
         "max_context_length": 32000,  # Smaller context for faster processing
         "enable_memory_monitoring": False,  # Disable for faster startup
         "aggressive_cleanup": True,
@@ -74,32 +75,28 @@ def test_process_pipeline(backend: str = "ollama") -> str:
     elif backend == "openAI":
         payload["openai_model"] = "gpt-4o"
 
-    try:
-        response = requests.post(
-            f"{API_BASE}/rag/process",
-            json=payload,
-            timeout=30
-        )
+    response = requests.post(
+        f"{API_BASE}/rag/process",
+        json=payload
+    )
 
-        if response.status_code == 200:
-            data = response.json()
-            task_id = data["task_id"]
-            print(f"✅ Pipeline started: task_id = {task_id}")
-            print(f"   Backend: {data['backend']}")
-            print(f"   Status: {data['status']}")
-            return task_id
-        else:
-            print(f"❌ Pipeline start failed: {response.status_code}")
-            try:
-                error_data = response.json()
-                print(f"   Error: {error_data.get('detail', 'Unknown error')}")
-            except Exception as e:
-                print(f"   Raw response: {response.text}")
-                print(f"   Error: {e}")
-            return None
-
-    except Exception as e:
-        print(f"❌ Pipeline start error: {e}")
+    print(response)
+    print(response.status_code)
+    if response.status_code == 200:
+        data = response.json()
+        task_id = data["task_id"]
+        print(f"✅ Pipeline started: task_id = {task_id}")
+        print(f"   Backend: {data['backend']}")
+        print(f"   Status: {data['status']}")
+        return task_id
+    else:
+        print(f"❌ Pipeline start failed: {response.status_code}")
+        try:
+            error_data = response.json()
+            print(f"   Error: {error_data.get('detail', 'Unknown error')}")
+        except Exception as e:
+            print(f"   Raw response: {response.text}")
+            print(f"   Error: {e}")
         return None
 
 
@@ -115,6 +112,9 @@ def test_task_status(task_id: str) -> Dict[str, Any]:
             print(f"✅ Status retrieved: {data['status']}")
             if 'progress' in data:
                 print(f"   Current step: {data['progress'].get('current_step', 'unknown')}")
+            if 'failed' in data['status']:
+                print(f"   ❌ Task failed: {data.get('error_message', 'No error message provided')}")
+                return None
             return data
         else:
             print(f"❌ Status check failed: {response.status_code}")

@@ -22,6 +22,7 @@ class WboeBaseRAG(BaseModel):
     embeddings: int = 0
     model_memory_usage: float = 44.0  # in GB, for the model itself
     conversations: list[dict[str, str]] = []
+    usage_for_max_length: float = 40.0  # default for Llama3.3 70B
 
     model_config: dict = {
         "arbitrary_types_allowed": True,
@@ -132,7 +133,7 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
                         for conv in conversations
                         for msg in conv.get("messages", [])
                         if "generation completed." in msg.get("content")
-                    ) / len(conversations)
+                    ) / len(self.user_input)
                     if conversations else 0
                 ),
             }
@@ -167,7 +168,8 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
         total_available_gpu_memory: float = self.total_available_gpu_memory
         model_memory_usage: float = self.model_memory_usage
         max_context_length: int = self.max_context_length
-        usage_for_max_length = 40  # default for Llama3.3 70B
+        # usage_for_max_length = 40  # default for Llama3.3 70B
+        usage_for_max_length: int = self.usage_for_max_length  # default for Llama4 Scout 16K
         avail_gpu_memory = max(total_available_gpu_memory - model_memory_usage, 24)
         token_per_gb = max_context_length / usage_for_max_length
 
@@ -280,28 +282,27 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
 
 if __name__ == "__main__":
     model_handler = WboeRAGPipeline(
-        backend="llama_cpp",
-        openai_model="gpt-4o",
+        backend="openAI",
+        openai_model="Llama-4-Scout-17B-16E-Instruct-GGUF-UD-Q4_K_XL",
         anthropic_model="claude-2",
-        # hf_model="lmstudio-community/Llama-3.3-70B-Instruct-GGUF",
-        # hf_model_fn="Llama-3.3-70B-Instruct-Q4_K_M.gguf",
-        hf_model="bartowski/Llama-3.2-3B-Instruct-GGUF",
-        hf_model_fn="Llama-3.2-3B-Instruct-Q4_0.gguf",
+        hf_model="unsloth/Llama-4-Scout-17B-16E-Instruct-GGUF",
+        hf_model_fn="UD-Q4_K_XL/Llama-4-Scout-17B-16E-Instruct-UD-Q4_K_XL-00001-of-00002.gguf",
+        local_dir="/data/fs201095/de32999/huggingface",
+        # local_dir="/home/daniel/.cache/huggingface",
         ollama_model="llama3.2:3b",
         collection_name="wboe_word_embeddings",
         vector_store_filepath_name="chroma_langchain_db_wboe_embeddings",
         user_input=[
-            "prompt1.txt",
-            "prompt2.txt",
-            "prompt3.txt",
-            "prompt4.txt"
+            "prompt1.md",
+            "prompt2.md",
+            "prompt3.md",
+            "prompt4.md",
+            "prompt5.md",
         ],
-        keywords_to_process=[
-            "44358__geilig_Simplex",
-            "43221__gockert_Simplex",
-        ],
-        max_context_length=128000,
-        model_memory_usage=4.0,
+        keywords_to_process=[],
+        max_context_length=10000000,
+        model_memory_usage=66.0,
+        usage_for_max_length=3.0,  # default for Llama4 Scout 16K
         output_dir="output",
         gpu_memory_threshold=0.9,  # Use max 90% of GPU memory
         enable_memory_monitoring=True,
@@ -310,14 +311,3 @@ if __name__ == "__main__":
     )
 
     model_handler.main()
-    # keywords_to_process=[
-    #     "44358__geilig_Simplex",
-    #     "43221__gockert_Simplex",
-    #     "44375__Käue_Simplex",
-    #     "44224__Köder_Simplex",
-    #     "44394__Keife_Simplex",
-    #     "44376__käuen_Simplex",
-    #     "44399__kenten_Simplex",
-    #     "44370__kardätschen_Simplex",
-    #     "44223__ködern_Simplex"
-    # ],

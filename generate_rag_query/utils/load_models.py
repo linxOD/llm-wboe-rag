@@ -12,7 +12,14 @@ from time import sleep
 from pydantic import BaseModel
 # from langchain_core.prompts import PromptTemplate
 # from typing import Generator
-from typing import Union, Literal
+from typing import Union, Literal, TypedDict
+
+
+class OpenAIResponse(TypedDict):
+    content: str
+    response_metadata: dict
+    id: str
+    usage_metadata: dict
 
 
 class WboeLoadModels(BaseModel):
@@ -22,23 +29,24 @@ class WboeLoadModels(BaseModel):
     openai_model: str = "gpt-4"
     hf_model: str = "lmstudio-community/Llama-3.3-70B-Instruct-GGUF"
     hf_model_fn: str = "Llama-3.3-70B-Instruct-Q4_K_M.gguf"
+    local_dir: str = ""
     ollama_model: str = "llama3.3:latest"
     jwt_token: str = os.getenv("OLLAMA_API_KEY")
     hf_token: str = os.getenv("HUGGINGFACE_API_KEY")
     openai_api_key: str = os.getenv("OPENAI_API_KEY")
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY")
-    user_input: list[str] = ["prompt1.txt", "prompt2.txt", "prompt3.txt"]
-    keyword: str = "keusch",
+    user_input: list[str] = ["prompt1.md", "prompt2.md", "prompt3.md"]  # list of prompt files
+    keyword: str = "keusch"
     max_context_length: int = 128000
     context_token_length: int = 2048
-    reserved_prompt_length: int = 4096
+    reserved_prompt_length: int = 8192
     model_size_gb: float = 44.0
     model_memory_usage_1k_token: float = 0.3125  # GB per 1000 tokens
     total_available_gpu_memory: float = 79.0  # in GB
     output_dir: str = "output"
     model: object = None
     tokenizer: object = None
-    inputs: str = ""
+    inputs: str = ""  # User input context (rag context data)
     conversation_messages: list[dict[str, str]] = []
     user_context_length: int = 0
     context_tokens: int = 0
@@ -135,11 +143,13 @@ class WboeLoadModels(BaseModel):
         from langchain_openai import ChatOpenAI
         model_name: str = self.openai_model
         api_key: str = self.openai_api_key
-        # temperature: float = 0.7
+        base_url: str = "http://127.0.0.1:8080/"  # for local proxy use
+        temperature: float = 0
         # top_p: float = 0.9
         max_tokens: int = None
         timeout: int = None
         max_retries: int = 2
+        seed: int = 1337
 
         if not api_key:
             raise ValueError("OPENAI_API_KEY environment variable is not set.")
@@ -150,11 +160,13 @@ class WboeLoadModels(BaseModel):
         llm = ChatOpenAI(
             model_name=model_name,
             openai_api_key=api_key,
-            # temperature=temperature,  # not supported for GPT-5
+            base_url=base_url,
+            temperature=temperature,  # not supported for GPT-5
             # top_p=top_p,  # not supported for GPT-5
             max_tokens=max_tokens,
             timeout=timeout,
             max_retries=max_retries,
+            seed=seed,
         )
 
         return llm
@@ -216,22 +228,23 @@ class WboeLoadModels(BaseModel):
         """Loads the LlamaCpp model with memory management."""
 
         from llama_cpp import Llama
-        model_name: str = self.hf_model
+        # model_name: str = "bartowski/Llama-3.2-3B-Instruct-GGUF",
+        # hf_model_fn: str = "Llama-3.2-3B-Instruct-Q4_0.gguf",
+        local_dir: str = self.local_dir
         seed: int = 1337
         n_ctx: int = self.context_token_length
         verbose: bool = False  # Reduce output spam
         n_gpu_layers: int = -1  # Use all layers on GPU
 
-        if not model_name:
-            raise ValueError("LlamaCpp model is not specified.")
-
         # Check memory before loading
         self.print_gpu_memory_status("Before tokenizer loading - ")
+        self.clear_model_tokenizer_from_cache()
 
         try:
             model = Llama.from_pretrained(
                 repo_id="bartowski/Llama-3.2-3B-Instruct-GGUF",
                 filename="Llama-3.2-3B-Instruct-Q4_0.gguf",
+                local_dir=local_dir,
                 n_gpu_layers=n_gpu_layers,
                 seed=seed,
                 n_ctx=n_ctx,
@@ -241,19 +254,20 @@ class WboeLoadModels(BaseModel):
             self.print_gpu_memory_status("After tokenizer loading - ")
             return model
         except Exception as e:
-            logfire.info(f"Error loading model: {e}")
+            logfire.info(f"Error loading tokenizer: {e}")
             raise e
 
     def load_llama_cpp_model(
         self,
         embeddings: bool = False,
-    ) -> object:
+    ) -> tuple[bool, object]:
         """Loads the LlamaCpp model with memory management."""
 
         from llama_cpp import Llama
 
         model_name: str = self.hf_model
         hf_model_fn: str = self.hf_model_fn
+        local_dir: str = self.local_dir
         context_token_length: int = self.context_token_length
         aggressive_cleanup: bool = self.aggressive_cleanup
         retry_on_oom: bool = self.retry_on_oom
@@ -277,6 +291,7 @@ class WboeLoadModels(BaseModel):
             model = Llama.from_pretrained(
                 repo_id=model_name,
                 filename=hf_model_fn,
+                local_dir=local_dir,
                 n_gpu_layers=n_gpu_layers,
                 seed=seed,
                 embeddings=embeddings,
@@ -287,7 +302,7 @@ class WboeLoadModels(BaseModel):
             )
 
             self.print_gpu_memory_status("After model loading - ")
-            return model
+            return True, model
 
         except Exception as e:
             logfire.info(f"Error loading model: {e}")
@@ -312,11 +327,10 @@ class WboeLoadModels(BaseModel):
                             verbose=verbose,
                         )
                         logfire.info("Successfully loaded with reduced GPU layers")
-                        return model
+                        return True, model
                     except Exception as e2:
                         logfire.info(f"Failed to load with reduced settings: {e2}")
-                        raise e2
-            raise e
+            return False, None
 
     def unloading_models_and_clear_up_memory(self) -> None:
         """Unloads the Hugging Face model and tokenizer.
@@ -359,7 +373,7 @@ class WboeLoadModels(BaseModel):
             logfire.info("Error accessing LLM response")
             return ""
 
-    def generate_openai(self) -> str:
+    def generate_openai(self) -> tuple[OpenAIResponse]:
         """Generates a response using the OpenAI LLM."""
         model = self.model
         conversation_messages: list[dict[str, str]] = self.conversation_messages
@@ -410,24 +424,15 @@ class WboeLoadModels(BaseModel):
             )
             return response
 
-        except (IndexError, AttributeError):
-            logfire.info("Error accessing LLM response")
-            return {"error": "Error accessing LLM response"}
+        except Exception as e:
+            logfire.info(f"Error accessing LLM response: {e}")
+            return {"error": f"Error accessing LLM response: {e}"}
 
     def create_conversation_messages(self) -> list[dict[str, str]]:
         """Initializes the chat messages."""
 
-        system_message_content = (
-            "Du bist ein Assistent, der auf die Frage des Benutzers antwortet."
-            "Du hast Zugriff auf den Kontext, der vom Benutzer bereitgestellt "
-            "wird. Deine Aufgabe ist es, die Instruktionen des Benutzers "
-            "zu befolgen, indem du die bereitgestellten Informationen nutzt. "
-            "Du solltest keine Informationen hinzufügen, die nicht im Kontext "
-            "enthalten sind, und du solltest keine Annahmen treffen. "
-            "Gehe step-by-step vor und erkläre deine Schritte "
-            "ausführlich bevor du eine Antwort gibst."
-            "\n\n"
-        )
+        with open("promptSystem.md", "r") as f:
+            system_message_content = f.read().strip()
 
         conversation_messages = [
             {"role": "system", "content": system_message_content},
@@ -684,7 +689,7 @@ class WboeLoadModels(BaseModel):
 
         user_input: list[str] = self.user_input
         backend: str = self.backend
-        tokenizer = self.tokenizer  # tokenizer based on backend
+        # tokenizer = self.tokenizer  # tokenizer based on backend
 
         input_prompts = {}
 
@@ -703,10 +708,15 @@ class WboeLoadModels(BaseModel):
                 case "openAI":
                     logfire.info("OpenAI backend selected, skipping token count for files.")
                     tokens = 0  # Skip token counting for OpenAI
+                case "anthropic":
+                    logfire.info("Anthropic backend selected, skipping token count for files.")
+                    tokens = 0  # Skip token counting for Anthropic
                 case "ollama":
-                    tokens = len(tokenizer.embed_query(text.encode("utf-8")))
+                    # tokens = len(tokenizer.embed_query(text.encode("utf-8")))
+                    tokens = 0
                 case "llama_cpp":
-                    tokens = len(tokenizer.tokenize(text.encode("utf-8")))
+                    # tokens = len(tokenizer.tokenize(text.encode("utf-8")))
+                    tokens = 0
 
             input_prompts[fn] = {"content": text, "tokens": tokens}
             logfire.info(f"{fn} has {tokens} tokens.")
@@ -717,7 +727,7 @@ class WboeLoadModels(BaseModel):
     def validate_user_input_context(self) -> Union[int, list[int]]:
         """Validates that the user input context is not empty."""
 
-        inputs: str = self.inputs
+        inputs: str = self.inputs  # user input context (rag context data)
         backend: str = self.backend
         tokenizer = self.tokenizer  # tokenizer based on backend
 
@@ -903,25 +913,42 @@ class WboeLoadModels(BaseModel):
 
                 with logfire.span("Saving response to file:"):
                     logfire.info("13: Saving response...")
-                    fn_prompt = file.split("/")[-1].replace(".txt", "")
+                    fn_prompt = file.split("/")[-1].replace(".md", "")
                     fn_model = self.openai_model.replace("/", "-")
                     fn_out_dir = self.output_dir
                     fn_keyword = self.keyword
-                    fn_name = f"{fn_keyword}_{fn_prompt}_{fn_model}.txt"
+                    fn_name = f"{fn_keyword}_{fn_prompt}_{fn_model}.json"
                     fn = os.path.join(fn_out_dir, fn_name)
+
+                    response_content = getattr(response, 'content', '')
+                    if response_content == '':
+                        response_content = response.text
+                    response_metadata = getattr(response, 'response_metadata', {})
+                    usage_metadata = getattr(response, 'usage_metadata', {})
+                    response_dict = {
+                        "content": response_content,
+                        "metadata": response_metadata,
+                        "usage": usage_metadata
+                    }
 
                     try:
                         with open(fn, "w") as file:
-                            file.write(response.text())
+                            json.dump(response_dict, file, indent=4)
                         logfire.info(f"14: Response saved to {fn}")
                     except Exception as e:
                         logfire.info(f"Error writing response to file: {e}")
-                        logfire.info("Response:", response)
+                        logfire.info(f"Response: {response}")
+
+                    try:
+                        with open(f"{fn.replace(".json", "_unhandled.json")}", "w") as file:
+                            json.dump(response, file, indent=4)
+                    except Exception as e:
+                        logfire.info(f"Error printing response or saving unhandled dict: {e}")
 
                 with logfire.span("update conversation messages:"):
                     try:
                         self.update_conversation_messages(
-                            new_message=response.text(),
+                            new_message=response.text,
                             role="assistant"
                         )
                     except Exception as e:
@@ -1050,10 +1077,10 @@ class WboeLoadModels(BaseModel):
     def llama_cpp(self) -> None:
         """Generates responses using the LlamaCpp LLM
         with improved memory management."""
-        aggressive_cleanup: bool = self.aggressive_cleanup
-        retry_on_oom: bool = self.retry_on_oom
-        max_context_length: int = self.max_context_length
-        reserved_prompt_length: int = self.reserved_prompt_length
+        # aggressive_cleanup: bool = self.aggressive_cleanup
+        # retry_on_oom: bool = self.retry_on_oom
+        # max_context_length: int = self.max_context_length
+        # reserved_prompt_length: int = self.reserved_prompt_length
         enable_memory_monitoring: bool = self.enable_memory_monitoring
         user_prompts: list[str] = self.user_input
         inputs: str = self.inputs
@@ -1074,41 +1101,85 @@ class WboeLoadModels(BaseModel):
             )
             logfire.info("6: System Msg. and Inputs set.")
 
-        with logfire.span("initialize tokenizer:"):
-            try:
-                self.init_model_tokenizer()
-                logfire.info("7: Tokenizer initialized.")
-            except Exception as e:
-                logfire.info(f"Error initializing tokenizer: {e}")
+        # with logfire.span("initialize tokenizer:"):
+        #     try:
+        #         self.init_model_tokenizer()
+        #         logfire.info("7: Tokenizer initialized.")
+        #     except Exception as e:
+        #         logfire.info(f"Error initializing tokenizer: {e}")
 
-        with logfire.span("process prompt files:"):
+        with logfire.span("process prompt files and run inference:"):
+            # validate user input files and get their token counts (prompts)
             prompts_info = self.validate_user_input_files()
-            # get token count for all prompts
-            prompt_tokens = prompts_info.get("total_tokens", 0)
-            self.user_context_length, self.context_tokens = self.validate_user_input_context()
+        #     # get token count for all prompts
+        #     prompt_tokens = prompts_info.get("total_tokens", 0)
+        #     # verify user input context length (context for rag) separately from the prompts
+        #     # and total conversation length
+        #     self.user_context_length, self.context_tokens = self.validate_user_input_context()
 
-            with logfire.span("verify token length and truncate if needed:"):
-                # truncate the input text to fit within the context length
-                exceeded, length = self.verify_conversation_messages_length(prompt_tokens)
-                logfire.info(f"8: Exceeded: {exceeded}, Length: {length}")
+        #     with logfire.span("verify token length and truncate if needed:"):
+        #         # check if the total conversation length exceeds the model's max context length
+        #         exceeded, length = self.verify_conversation_messages_length(prompt_tokens)
+        #         logfire.info(f"8: Exceeded: {exceeded}, Length: {length}")
 
-                if exceeded:
-                    logfire.info("Context length exceeded, truncating...")
-                    inputs = self.truncate_text(self.context_tokens, length)
-                    self.conversation_messages[1]["content"] = (inputs)
-                    self.context_token_length = max_context_length
-                else:
-                    self.context_token_length = (
-                        length + reserved_prompt_length
-                    )
+        #         if exceeded:
+        #             logfire.info("Context length exceeded, truncating...")
+        #             # truncate the input text to fit within the context length
+        #             inputs = self.truncate_text(self.context_tokens, length)
+        #             self.conversation_messages[1]["content"] = (inputs)
+        #             self.context_token_length = max_context_length
+        #         else:
+        #             self.context_token_length = (
+        #                 length + reserved_prompt_length
+        #             )
 
             with logfire.span("load model and keep alive for all prompts:"):
-                try:
-                    self.model = self.load_llama_cpp_model()
+                if not hasattr(self, 'model') or self.model is None:
+                    logfire.info("Loading LlamaCpp model...")
+                    self.context_token_length = 192000
+                    success, self.model = self.load_llama_cpp_model()
+                else:
+                    success = True
+                    logfire.info("LlamaCpp model already loaded.")
+
+                if success:
                     logfire.info("9: Model loaded and ready.")
-                except Exception as e:
-                    logfire.info(f"Error loading model: {e}")
-                    return  # Exit if model loading fails
+                else:
+                    logfire.info("Failed to load model. Try reducing context length.")
+                    self.force_memory_cleanup()
+                    sleep(2)
+                    self.context_token_length = 96000
+
+                    # if self.tokenizer is None:
+                    #     self.init_model_tokenizer()
+
+                    # self.max_context_length = min(
+                    #     100000,
+                    #     self.max_context_length
+                    # )
+                    # logfire.info(f"Reducing max context length to: {self.max_context_length}")
+                    # with logfire.span("retry: verify token length and truncate if needed:"):
+                    #     # check if the total conversation length exceeds the model's max context length
+                    #     exceeded, length = self.verify_conversation_messages_length(prompt_tokens)
+                    #     logfire.info(f"8: Exceeded: {exceeded}, Length: {length}")
+
+                    #     if exceeded:
+                    #         logfire.info("Context length exceeded, truncating...")
+                    #         # truncate the input text to fit within the context length
+                    #         inputs = self.truncate_text(self.context_tokens, length)
+                    #         self.conversation_messages[1]["content"] = (inputs)
+                    #         self.context_token_length = max_context_length
+                    #     else:
+                    #         self.context_token_length = (
+                    #             length + reserved_prompt_length
+                    #         )
+
+                    success, self.model = self.load_llama_cpp_model()
+                    if success:
+                        logfire.info("9/b: Model loaded and ready after reducing context.")
+                    else:
+                        logfire.info("Failed to load model even after reducing context length.")
+                        return  # Exit the function if model loading fails
 
             for i, file in enumerate(user_prompts):
                 logfire.info(f"Processing prompt {i + 1}/{len(user_prompts)}")
@@ -1126,34 +1197,6 @@ class WboeLoadModels(BaseModel):
                         role="user"
                     )
                     logfire.info("10: Adding User prompt to messsages.")
-
-                with logfire.span("memory check before model loading:"):
-                    if enable_memory_monitoring and i > 0:
-                        required_memory = self.evaluate_gpu_memory_requirements()
-                        logfire.info(f"Required memory for loading model:\
-                            {required_memory:.2f} GB")
-
-                        # Check if we have enough memory before loading model
-                        if not self.check_available_memory(
-                                required_memory_gb=required_memory):
-                            logfire.info("Insufficient memory detected,\
-                                performing cleanup...")
-
-                            self.clear_model_from_cache()
-                            self.clear_model_tokenizer_from_cache()
-                            if aggressive_cleanup:
-                                self.force_memory_cleanup()
-
-                            # Wait a bit more for memory to be released
-                            sleep(3)
-
-                            # Check again
-                            if not self.check_available_memory(
-                                    required_memory_gb=required_memory):
-                                logfire.info("Still insufficient memory,\
-                                    using smaller context...")
-                                self.context_token_length = min(
-                                    self.context_token_length, 4096)
 
                 with logfire.span("text generation:"):
                     inference_duration = logfire.metric_histogram(
@@ -1173,31 +1216,18 @@ class WboeLoadModels(BaseModel):
 
                     except Exception as e:
                         logfire.info(f"Error during model loading or generation: {e}")
-                        if "out of memory" in str(e).lower():
-                            logfire.info("OOM detected, performing aggressive cleanup and\
-                                retrying...")
-                            self.clear_model_from_cache()
-                            self.clear_model_tokenizer_from_cache()
-                            if aggressive_cleanup:
-                                self.force_memory_cleanup()
-                            sleep(5)
+                        required_memory = self.evaluate_gpu_memory_requirements()
+                        logfire.info(f"Required memory for loading model:\
+                            {required_memory:.2f} GB")
 
-                            if retry_on_oom:
-                                # Reduce context length and try again
-                                self.context_token_length = min(
-                                    self.context_token_length // 2, 2048)
-
-                                try:
-                                    self.model = self.load_llama_cpp_model()
-                                    logfire.info("9/a: Model re-loaded and ready.")
-                                    response = self.generate_llama_cpp()
-                                    logfire.info("12: Response generated after OOM recovery.")
-                                except Exception as e2:
-                                    logfire.info(f"Failed to recover from OOM: {e2}")
-                                    continue  # Skip this file and move to next
+                        # Check if we have enough memory before loading model
+                        if not self.check_available_memory(
+                                required_memory_gb=required_memory):
+                            logfire.info("Insufficient memory detected,\
+                                performing cleanup...")
                         else:
-                            logfire.info(f"Non-memory related error: {e}")
-                            continue
+                            logfire.info("Error not related to memory.")
+                        return  # Exit the function on error
 
                     # count time
                     end_time = time.perf_counter()

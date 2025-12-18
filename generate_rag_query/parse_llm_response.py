@@ -4,8 +4,11 @@ import os
 from typing import Generator as Gen
 
 
+INPUT = "output"
+
+
 def load_files() -> list[str]:
-    files = glob.glob("output_2025-08-28_small/*.json")
+    files = glob.glob(f"{INPUT}/*.json")
     return files
 
 
@@ -27,17 +30,18 @@ def parse_llm_response() -> Gen[str, dict, bool]:
 
     for file in files:
         file_name = os.path.basename(file)
-        if file_name == "chat_history.json":
+        if "conversation_history" in file_name:
             continue  # Skip chat history file
 
-        fn = os.path.join("parsed", file_name)
-        if not os.path.exists("parsed"):
-            os.makedirs("parsed")
+        fn = os.path.join(f"{INPUT}_parsed", file_name)
+        if not os.path.exists(f"{INPUT}_parsed"):
+            os.makedirs(f"{INPUT}_parsed")
 
         data = parse_json_file(file)
         if isinstance(data, dict):
-            response = data.get("choices", {})[0].get("message", {}
-                                                      ).get("content", "")
+            # response = data.get("choices", {})[0].get("message", {}
+            #                                           ).get("content", "")
+            response = data.get("content", "")
             # If response is a string containing JSON data and you want
             # to parse it:
             try:
@@ -48,7 +52,7 @@ def parse_llm_response() -> Gen[str, dict, bool]:
                 # If it's not valid JSON, just store the string
                 response = response
 
-            save_parsed_data(response, fn)
+            # save_parsed_data(response, fn)
 
             yield fn, response, True
 
@@ -112,7 +116,8 @@ def create_text_from_parsed_data(fn, parsed_data) -> str:
         text += "\n\n"
 
     text = text.strip()
-    with open(f"{fn}.txt", "w") as text_file:
+    fn = fn.replace(".json", ".md")
+    with open(fn, "w") as text_file:
         text_file.write(text)
     return text
 
@@ -123,4 +128,4 @@ if __name__ == "__main__":
             print(f"Skipping invalid file: {file_name}")
             continue
         text = create_text_from_parsed_data(file_name, parsed_data)
-    print(f"Total items parsed: {len(parsed_data)}")
+    # print(f"Total items parsed: {len(parsed_data)}")

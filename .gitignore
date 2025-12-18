@@ -21,5 +21,10 @@ test.py
 *.log
 *.coverage
 .coverage.*
+prompt*.md
+prompt*.txt
+Prompt*.md
+
+*.md
 
 CBE

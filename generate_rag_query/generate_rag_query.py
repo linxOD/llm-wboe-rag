@@ -283,7 +283,7 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
 if __name__ == "__main__":
     model_handler = WboeRAGPipeline(
         backend="openAI",
-        openai_model="Llama-4-Scout-17B-16E-Instruct-GGUF-UD-Q4_K_XL",
+        openai_model="gemma-3-27b-it-UD-Q8_K_XL",
         anthropic_model="claude-2",
         hf_model="unsloth/Llama-4-Scout-17B-16E-Instruct-GGUF",
         hf_model_fn="UD-Q4_K_XL/Llama-4-Scout-17B-16E-Instruct-UD-Q4_K_XL-00001-of-00002.gguf",
@@ -299,10 +299,13 @@ if __name__ == "__main__":
             "prompt4.md",
             "prompt5.md",
         ],
-        keywords_to_process=[],
-        max_context_length=10000000,
-        model_memory_usage=66.0,
-        usage_for_max_length=3.0,  # default for Llama4 Scout 16K
+        keywords_to_process=[
+            "43217__geflickt_Simplex",
+            "43217__geflickt_Simplex"
+        ],
+        max_context_length=128000,
+        model_memory_usage=32.0,
+        usage_for_max_length=40.0,  # default for Llama4 Scout 16K
         output_dir="output",
         gpu_memory_threshold=0.9,  # Use max 90% of GPU memory
         enable_memory_monitoring=True,

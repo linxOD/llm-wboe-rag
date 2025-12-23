@@ -4,7 +4,7 @@ import os
 from typing import Generator as Gen
 
 
-INPUT = "output"
+INPUT = "output_2025-12-23_apertus_2_temp0"
 
 
 def load_files() -> list[str]:

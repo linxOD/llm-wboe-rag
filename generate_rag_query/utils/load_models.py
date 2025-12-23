@@ -880,7 +880,11 @@ class WboeLoadModels(BaseModel):
 
         with logfire.span("create conversation messages:"):
             self.conversation_messages = self.create_conversation_messages()
-            self.update_conversation_messages(new_message=inputs, role="user")
+            if "gemma" in self.openai_model:
+                self.conversation_messages[0]["role"] = "user"
+                self.conversation_messages[0]["content"] += "\n\n" + inputs
+            else:
+                self.update_conversation_messages(new_message=inputs, role="user")
             logfire.info("6: System Msg. and Inputs set.")
 
         with logfire.span("process prompt files:"):
@@ -897,10 +901,13 @@ class WboeLoadModels(BaseModel):
                 with logfire.span("update conversation messages:"):
                     text = prompts_info[fn_load]["content"]
                     # text_tokens = prompts_info[fn_load]["tokens"]  # number of tokens in the prompt
-                    self.update_conversation_messages(
-                        new_message=text,
-                        role="user"
-                    )
+                    if "gemma" in self.openai_model and i == 0:
+                        self.conversation_messages[0]["content"] += "\n\n" + text
+                    else:
+                        self.update_conversation_messages(
+                            new_message=text,
+                            role="user"
+                        )
                     logfire.info("10: Adding User prompt to messages.")
 
                 try:
@@ -922,7 +929,11 @@ class WboeLoadModels(BaseModel):
 
                     response_content = getattr(response, 'content', '')
                     if response_content == '':
-                        response_content = response.text
+                        try:
+                            response_content = response.text
+                        except Exception as e:
+                            logfire.info(f"Error accessing response.text: {e}")
+                            response_content = ''
                     response_metadata = getattr(response, 'response_metadata', {})
                     usage_metadata = getattr(response, 'usage_metadata', {})
                     response_dict = {
@@ -939,16 +950,10 @@ class WboeLoadModels(BaseModel):
                         logfire.info(f"Error writing response to file: {e}")
                         logfire.info(f"Response: {response}")
 
-                    try:
-                        with open(f"{fn.replace(".json", "_unhandled.json")}", "w") as file:
-                            json.dump(response, file, indent=4)
-                    except Exception as e:
-                        logfire.info(f"Error printing response or saving unhandled dict: {e}")
-
                 with logfire.span("update conversation messages:"):
                     try:
                         self.update_conversation_messages(
-                            new_message=response.text,
+                            new_message=response_content,
                             role="assistant"
                         )
                     except Exception as e:

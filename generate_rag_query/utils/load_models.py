@@ -147,7 +147,7 @@ class WboeLoadModels(BaseModel):
         temperature: float = 0
         # top_p: float = 0.9
         max_tokens: int = None
-        timeout: int = None
+        timeout: int = 600
         max_retries: int = 2
         seed: int = 1337
 
@@ -157,7 +157,7 @@ class WboeLoadModels(BaseModel):
         if not model_name:
             raise ValueError("OpenAI model is not specified.")
 
-        llm = ChatOpenAI(
+        return ChatOpenAI(
             model_name=model_name,
             openai_api_key=api_key,
             base_url=base_url,
@@ -169,8 +169,6 @@ class WboeLoadModels(BaseModel):
             seed=seed,
         )
 
-        return llm
-
     def load_ollama_embeddings_function(self):
         """Loads the Ollama embeddings function."""
 
@@ -180,7 +178,7 @@ class WboeLoadModels(BaseModel):
         token: str = self.jwt_token
         context_token_length: int = self.context_token_length
 
-        embeddings = OllamaEmbeddings(
+        return OllamaEmbeddings(
             model=model_name,
             base_url=base_url,
             sync_client_kwargs={
@@ -188,7 +186,6 @@ class WboeLoadModels(BaseModel):
             },
             num_ctx=context_token_length,
         )
-        return embeddings
 
     def load_ollama_model(self):
         """Loads the Ollama model."""
@@ -209,7 +206,7 @@ class WboeLoadModels(BaseModel):
         if not model_name:
             raise ValueError("Ollama model is not specified.")
 
-        llm = OllamaLLM(
+        return OllamaLLM(
             model=model_name,
             base_url=base_url,
             sync_client_kwargs={
@@ -221,8 +218,6 @@ class WboeLoadModels(BaseModel):
             top_k=top_k,
             repetition_penalty=repetition_penalty,
         )
-
-        return llm
 
     def load_llama_cpp_model_tokenizer(self) -> object:
         """Loads the LlamaCpp model with memory management."""
@@ -434,11 +429,9 @@ class WboeLoadModels(BaseModel):
         with open("promptSystem.md", "r") as f:
             system_message_content = f.read().strip()
 
-        conversation_messages = [
+        return [
             {"role": "system", "content": system_message_content},
         ]
-
-        return conversation_messages
 
     def update_conversation_messages(
         self,

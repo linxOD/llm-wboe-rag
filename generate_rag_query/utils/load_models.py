@@ -140,6 +140,7 @@ class WboeLoadModels(BaseModel):
 
     def load_openai_model(self):
         """Loads the OpenAI model."""
+
         from langchain_openai import ChatOpenAI
         model_name: str = self.openai_model
         api_key: str = self.openai_api_key

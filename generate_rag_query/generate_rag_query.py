@@ -10,6 +10,8 @@ from typing import Literal, Dict, Any
 # Configure Logfire for logging
 if os.getenv("LOGFIRE_TOKEN") is None:
     raise ValueError("LOGFIRE_TOKEN environment variable is not set.")
+else:
+    print("Logfire login sucessful!")
 
 logfire.configure()
 
@@ -283,12 +285,12 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
 if __name__ == "__main__":
     model_handler = WboeRAGPipeline(
         backend="openAI",
-        openai_model="gemma-3-27b-it-UD-Q8_K_XL",
+        openai_model="llama-4-scout-17b-16e-instruct",
         anthropic_model="claude-2",
-        hf_model="unsloth/Llama-4-Scout-17B-16E-Instruct-GGUF",
-        hf_model_fn="UD-Q4_K_XL/Llama-4-Scout-17B-16E-Instruct-UD-Q4_K_XL-00001-of-00002.gguf",
-        local_dir="/data/fs201095/de32999/huggingface",
-        # local_dir="/home/daniel/.cache/huggingface",
+        hf_model="bartowski/Llama-3.2-3B-Instruct-GGUF",
+        hf_model_fn="Llama-3.2-3B-Instruct-Q4_0.gguf",
+        # local_dir="/data/fs201095/de32999/huggingface",
+        local_dir="/home/daniel/.cache/huggingface",
         ollama_model="llama3.2:3b",
         collection_name="wboe_word_embeddings",
         vector_store_filepath_name="chroma_langchain_db_wboe_embeddings",
@@ -296,12 +298,15 @@ if __name__ == "__main__":
             "prompt1.md",
             "prompt2.md",
             "prompt3.md",
-            "prompt4.md",
-            "prompt5.md",
         ],
         keywords_to_process=[
             "43217__geflickt_Simplex",
-            "43217__geflickt_Simplex"
+            "44380__koramisieren_simplex",
+            "44408__Keuschlecker_Simplex",
+            "44382__kommod_simplex",
+            "44409__Kiberer_Simplex",
+            "44365__grob_Simplex"
+
         ],
         max_context_length=128000,
         model_memory_usage=32.0,
@@ -313,4 +318,5 @@ if __name__ == "__main__":
         retry_on_oom=True
     )
 
-    model_handler.main()
+    status = model_handler.main()
+    print(getattr(status, "status", "unknown"))

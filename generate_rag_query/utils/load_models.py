@@ -9,17 +9,11 @@ import logfire
 from time import sleep
 # from langchain.chat_models import init_chat_model
 # from langchain.document_loaders import DirectoryLoader
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 # from langchain_core.prompts import PromptTemplate
 # from typing import Generator
-from typing import Union, Literal, TypedDict
-
-
-class OpenAIResponse(TypedDict):
-    content: str
-    response_metadata: dict
-    id: str
-    usage_metadata: dict
+from typing import Union, Literal
+from utils.output_types import Artikel
 
 
 class WboeLoadModels(BaseModel):
@@ -138,13 +132,16 @@ class WboeLoadModels(BaseModel):
 
         return llm
 
-    def load_openai_model(self):
+    def load_openai_model(self, structured_output: bool = False):
         """Loads the OpenAI model."""
 
         from langchain_openai import ChatOpenAI
+        # from langchain.agents import create_agent
+        # from langchain.agents.structured_output import ProviderStrategy
+
         model_name: str = self.openai_model
         api_key: str = self.openai_api_key
-        base_url: str = "http://127.0.0.1:8080/"  # for local proxy use
+        base_url: str = "http://127.0.0.1:1234/v1"  # for local proxy use
         temperature: float = 0
         # top_p: float = 0.9
         max_tokens: int = None
@@ -158,7 +155,7 @@ class WboeLoadModels(BaseModel):
         if not model_name:
             raise ValueError("OpenAI model is not specified.")
 
-        return ChatOpenAI(
+        llm = ChatOpenAI(
             model_name=model_name,
             openai_api_key=api_key,
             base_url=base_url,
@@ -167,8 +164,13 @@ class WboeLoadModels(BaseModel):
             max_tokens=max_tokens,
             timeout=timeout,
             max_retries=max_retries,
-            seed=seed,
+            seed=seed
         )
+        if structured_output:
+            logfire.info("Creating agent with structured output format...")
+            return llm.with_structured_output(Artikel)
+        else:
+            return llm
 
     def load_ollama_embeddings_function(self):
         """Loads the Ollama embeddings function."""
@@ -369,7 +371,7 @@ class WboeLoadModels(BaseModel):
             logfire.info("Error accessing LLM response")
             return ""
 
-    def generate_openai(self) -> tuple[OpenAIResponse]:
+    def generate_openai(self) -> tuple[Artikel]:
         """Generates a response using the OpenAI LLM."""
         model = self.model
         conversation_messages: list[dict[str, str]] = self.conversation_messages
@@ -884,9 +886,6 @@ class WboeLoadModels(BaseModel):
         with logfire.span("process prompt files:"):
             prompts_info = self.validate_user_input_files()
 
-        with logfire.span("Load OpenAI model:"):
-            self.model = self.load_openai_model()
-
         with logfire.span("process each prompt file:"):
             for i, file in enumerate(user_prompts):
                 logfire.info(f"Processing prompt {i + 1}/{len(user_prompts)}")
@@ -894,7 +893,8 @@ class WboeLoadModels(BaseModel):
 
                 with logfire.span("update conversation messages:"):
                     text = prompts_info[fn_load]["content"]
-                    # text_tokens = prompts_info[fn_load]["tokens"]  # number of tokens in the prompt
+                    # text_tokens = prompts_info[fn_load]["tokens"]
+                    # number of tokens in the prompt
                     if "gemma" in self.openai_model and i == 0:
                         self.conversation_messages[0]["content"] += "\n\n" + text
                     else:
@@ -906,6 +906,12 @@ class WboeLoadModels(BaseModel):
 
                 try:
                     logfire.info("11: Generating response...")
+                    if i == 2:
+                        with logfire.span("Load OpenAI model with structured output:"):
+                            self.model = self.load_openai_model(structured_output=True)
+                    else:
+                        with logfire.span("Load OpenAI model:"):
+                            self.model = self.load_openai_model()
                     response = self.generate_openai()
                     logfire.info("12: Response gernerated.")
                 except Exception as e:
@@ -918,10 +924,24 @@ class WboeLoadModels(BaseModel):
                     fn_model = self.openai_model.replace("/", "-")
                     fn_out_dir = self.output_dir
                     fn_keyword = self.keyword
-                    fn_name = f"{fn_keyword}_{fn_prompt}_{fn_model}.json"
-                    fn = os.path.join(fn_out_dir, fn_name)
 
-                    response_content = getattr(response, 'content', '')
+                    validated_response = ""
+                    if i == 2:
+                        try:
+                            response_content = response.model_dump_json()
+                        except Exception as e:
+                            logfire.info(f"Error dumping response to JSON: {e}")
+                            response_content = {}
+                        try:
+                            _ = Artikel.model_validate_json(response_content)
+                            # print(article_schema)
+                            validated_response = "__valid"
+                        except ValidationError as e:
+                            validated_response = "__invalid"
+                            logfire.info(f"Validation error: {e}")
+                    else:
+                        response_content = getattr(response, 'content', '')
+
                     if response_content == '':
                         try:
                             response_content = response.text
@@ -936,9 +956,12 @@ class WboeLoadModels(BaseModel):
                         "usage": usage_metadata
                     }
 
+                    fn_name = f"{fn_keyword}_{fn_prompt}_{fn_model}{validated_response}.json"
+                    fn = os.path.join(fn_out_dir, fn_name)
+
                     try:
-                        with open(fn, "w") as file:
-                            json.dump(response_dict, file, indent=4)
+                        with open(fn, "w") as f:
+                            json.dump(response_dict, f, indent=4)
                         logfire.info(f"14: Response saved to {fn}")
                     except Exception as e:
                         logfire.info(f"Error writing response to file: {e}")

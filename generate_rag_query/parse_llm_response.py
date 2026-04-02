@@ -4,8 +4,8 @@ import os
 from typing import Generator as Gen
 
 
-INPUT = "output_2025-12-23_apertus_2_temp0"
-
+INPUT = "output"
+ENCODING = "utf-8"
 
 def load_files() -> list[str]:
     files = glob.glob(f"{INPUT}/*.json")
@@ -19,7 +19,7 @@ def parse_json_file(file_path) -> dict:
 
 
 def save_parsed_data(data, output_file) -> None:
-    with open(output_file, 'w') as file:
+    with open(output_file, 'w', encoding=ENCODING) as file:
         json.dump(data, file, indent=4)
     print(f"Parsed data saved to {output_file}")
     print(f"Total items parsed: {len(data)}")
@@ -103,22 +103,21 @@ def verify_parsed_data(parsed_data) -> str:
 
 
 def create_text_from_parsed_data(fn, parsed_data) -> str:
+    parse_json = False
     if isinstance(parsed_data, str):
         text = parsed_data
     else:
-        text = ""
-        fn = fn.replace(".json", "")
-        for key, value in parsed_data.items():
-            text += f"File: {fn}\n"
-            text += f"{key}:\n"
-            text += verify_parsed_data(value)
-            text += "\n"
-        text += "\n\n"
+        text = parsed_data
+        parse_json = True
 
-    text = text.strip()
-    fn = fn.replace(".json", ".md")
-    with open(fn, "w") as text_file:
-        text_file.write(text)
+    if not parse_json:
+        text = text.strip()
+        fn = fn.replace(".json", ".md")
+        with open(fn, "w", encoding=ENCODING) as text_file:
+            text_file.write(text)
+    else:
+        with open(fn, "w", encoding=ENCODING) as text_file:
+            json.dump(text, text_file, indent=4)
     return text
 
 

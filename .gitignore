@@ -6,6 +6,9 @@ dist/
 wheels/
 *.egg-info
 .python-version
+set_env.sh
+/llm_corpus
+test_api.sh
 
 # Virtual environments
 .venv
@@ -13,7 +16,7 @@ wheels/
 .ruff_cache/
 =0.1.2
 *.txt
-output*
+/output*
 parsed*/
 *.lock
 *.sbatch

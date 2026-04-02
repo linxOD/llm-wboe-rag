@@ -228,7 +228,7 @@ if __name__ == "__main__":
         collection_name="wboe_word_embeddings",
         vectore_store_dir="chroma_langchain_db_wboe_embeddings",
         documents_path="./llm_corpus",
-        documents_file_type="md",
+        documents_file_type="toon",
         exclude_files=["none"],
         include_files=["all"],
         jwt_token=os.getenv("OLLAMA_API_KEY"),

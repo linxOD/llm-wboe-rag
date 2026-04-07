@@ -931,7 +931,7 @@ class WboeLoadModels(BaseModel):
                             response_content = response.model_dump_json()
                         except Exception as e:
                             logfire.info(f"Error dumping response to JSON: {e}")
-                            response_content = {}
+                            response_content = response
                         try:
                             _ = Artikel.model_validate_json(response_content)
                             # print(article_schema)

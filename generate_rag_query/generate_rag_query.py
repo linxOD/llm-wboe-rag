@@ -300,12 +300,13 @@ if __name__ == "__main__":
             "prompt3.md",
         ],
         keywords_to_process=[
-            "43217__geflickt_Simplex",
-            "44380__koramisieren_simplex",
-            "44408__Keuschlecker_Simplex",
-            "44382__kommod_simplex",
-            "44409__Kiberer_Simplex",
-            "44365__grob_Simplex"
+            "15626__Fleisch_Simplex_verbr",
+            # "43217__geflickt_Simplex",
+            # "44380__koramisieren_simplex",
+            # "44408__Keuschlecker_Simplex",
+            # "44382__kommod_simplex",
+            # "44409__Kiberer_Simplex",
+            # "44365__grob_Simplex"
 
         ],
         max_context_length=128000,

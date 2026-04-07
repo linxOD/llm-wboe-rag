@@ -5,7 +5,7 @@ class Beispiele(BaseModel):
     
     beispielsatz: str = Field(..., description="Ein Beispielsatz, der die Bedeutung laut Belegen veranschaulicht.")
     herkunftsregionen: list[str] = Field(..., description="Die Regionen, aus denen die Belege stammen, die den Beispielsatz unterstützen.")
-    beleg_ids: list[str] = Field(..., description="Auflistung von allen relevanten Beleg IDs, aus denen sich der Beispielsatz ableiten lässt.")
+    beleg_id: str = Field(..., description="Auflistung von allen relevanten Beleg IDs, aus denen sich der Beispielsatz ableiten lässt.")
 
 
 class Bedeutung(BaseModel):
@@ -23,8 +23,7 @@ class Artikel(BaseModel):
     lemma: str = Field(..., description="Das Lemma des Wortes.")
     pos: str = Field(..., description="Die Wortart des Wortes (z.B. Substantiv, Verb).")
     genus: str | None = Field(..., description="Der Genus des Wortes, falls relevant oder null.")
-    # kasus: str | None = Field(..., description="Der Kasus des Wortes, falls relevant oder null.")
-    # diminutiv: str | None = Field(..., description="Der Diminutiv des Wortes, falls relevant oder null.")
+    kasus: str | None = Field(..., description="Der Kasus des Wortes, falls relevant oder null.")
     bedeutungen: list[Bedeutung] = Field(..., description="Liste der Bedeutungen, die aus den Belegen abgeleitet werden können und mit dem Wort verbunden sind.")
 
 

@@ -27,6 +27,7 @@ def save_parsed_data(data, output_file) -> None:
 
 def parse_llm_response() -> Gen[str, dict, bool]:
     files = load_files()
+    valid = False
 
     for file in files:
         file_name = os.path.basename(file)
@@ -47,18 +48,19 @@ def parse_llm_response() -> Gen[str, dict, bool]:
             try:
                 response = json.loads(response)
                 print(f"Parsing file: {file_name}")
-            except json.JSONDecodeError:
+                valid = True
+            except (json.JSONDecodeError, TypeError):
                 print(f"Invalid JSON in file: {file_name}, storing as string.")
                 # If it's not valid JSON, just store the string
                 response = response
 
             # save_parsed_data(response, fn)
 
-            yield fn, response, True
+            yield fn, response, valid
 
         else:
             response = {"error": "Invalid JSON format"}
-            yield fn, response, False
+            yield fn, response, valid
 
 
 def verify_parsed_data(parsed_data) -> str:

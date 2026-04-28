@@ -7,6 +7,7 @@ from utils.load_vectorestore_documents import WboeLoadVectorstore
 from pydantic import BaseModel
 from typing import Literal, Dict, Any
 
+
 # Configure Logfire for logging
 if os.getenv("LOGFIRE_TOKEN") is None:
     raise ValueError("LOGFIRE_TOKEN environment variable is not set.")
@@ -20,6 +21,7 @@ class WboeBaseRAG(BaseModel):
     # Common attributes and configuration
     context: dict[str, str] = {}
     keywords_to_process: list[str] = []
+    keywords_to_exclude: list[str] = []
     backend: Literal["ollama", "llama_cpp", "openAI", "anthropic"] = "ollama"
     embeddings: int = 0
     model_memory_usage: float = 44.0  # in GB, for the model itself
@@ -135,7 +137,7 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
                         for conv in conversations
                         for msg in conv.get("messages", [])
                         if "generation completed." in msg.get("content")
-                    ) / len(self.user_input)
+                    ) / len(self.conversations)
                     if conversations else 0
                 ),
             }
@@ -203,8 +205,14 @@ class WboeRAGPipeline(WboeBaseRAG, WboeLoadVectorstore, WboeLoadModels):
 
         with logfire.span("iterate documents for llm context"):
             for doc in context:
+
                 self.keyword = doc["keyword"]
+
                 if len(self.keywords_to_process) > 0 and self.keyword not in self.keywords_to_process:
+                    continue
+
+                if len(self.keywords_to_exclude) > 0 and self.keyword in self.keywords_to_exclude:
+                    logfire.info(f"Skipping excluded keyword: {self.keyword}")
                     continue
 
                 logfire.info(f"2: Processing document: {doc['keyword']}")
@@ -286,6 +294,7 @@ if __name__ == "__main__":
     model_handler = WboeRAGPipeline(
         backend="openAI",
         openai_model="llama-4-scout-17b-16e-instruct",
+        # openai_model="mistralai/ministral-3-14b-reasoning",
         anthropic_model="claude-2",
         hf_model="bartowski/Llama-3.2-3B-Instruct-GGUF",
         hf_model_fn="Llama-3.2-3B-Instruct-Q4_0.gguf",
@@ -300,14 +309,48 @@ if __name__ == "__main__":
             "prompt3.md",
         ],
         keywords_to_process=[
-            "15626__Fleisch_Simplex_verbr",
+            #"15626__Fleisch_Simplex_verbr",
             # "43217__geflickt_Simplex",
             # "44380__koramisieren_simplex",
             # "44408__Keuschlecker_Simplex",
             # "44382__kommod_simplex",
             # "44409__Kiberer_Simplex",
             # "44365__grob_Simplex"
-
+        ],
+        keywords_to_exclude=[
+            "15626__Fleisch_Simplex_verbr",
+            # "44354__Feger_Simplex",
+            # "44356__Galfe_Simplex",
+            # "44361__gilben_Simplex",
+            # "44381__kastrauen_Simplex",
+            # "44374__katzen_Simplex",
+            # "44380__koramisieren_simplex",
+            # "44381__konvoien_simplex",
+            # "44392__keiden_Simplex",
+            # "44395__keifen_Simplex",
+            # "44396__Kente_Simplex",
+            # "44405__Keppler_Simplex",
+            # "44406__kernen_Simplex",
+            # "44408__Keuschlecker_Simplex",
+            # "44409__Kiberer_Simplex",
+            # "44419__Kinderach_Simplex",
+            # "44423__Kindheit_Simplex",
+            # "44426__Kindsin_Simplex",
+            # "44427__Krämpe_simplex",
+            # "12511__Furie_Simplex",
+            # "13919__Flecke_Simplex",
+            # "15066__Fäule_Simplex",
+            # "27009__Gigel_Simplex",
+            # "28603__Gande_Simplex",
+            # "30032__Kitz_Simplex",
+            # "31124__kitzen_Simplex",
+            # "35581__Gift_Simplex",
+            # "36935__gucken_simplex",
+            # "38268__Keuschler_Simplex",
+            # "38659__Keusche_bed",
+            # "38685__kiebitzen_Simplex",
+            # "40881__keusch_Simplex",   
+            # "44225__köden_Simplex"         
         ],
         max_context_length=128000,
         model_memory_usage=32.0,

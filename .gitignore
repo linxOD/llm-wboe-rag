@@ -7,8 +7,7 @@ wheels/
 *.egg-info
 .python-version
 set_env.sh
-/llm_corpus
-test_api.sh
+
 
 # Virtual environments
 .venv
@@ -31,3 +30,10 @@ Prompt*.md
 *.md
 
 CBE
+
+valid_parsed_output*/
+output_parsed*/
+output/
+/llm_corpus
+test_api.sh
+set_env.py

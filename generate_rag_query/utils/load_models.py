@@ -13,7 +13,7 @@ from pydantic import BaseModel, ValidationError
 # from langchain_core.prompts import PromptTemplate
 # from typing import Generator
 from typing import Union, Literal
-from utils.output_types import Artikel, ListeAllerBedeutungen
+from utils.output_types import Artikel
 # from toon_format import encode as encode_toon
 
 
@@ -135,7 +135,7 @@ class WboeLoadModels(BaseModel):
 
     def load_openai_model(self,
                           structured_output: bool = False,
-                          schema: ListeAllerBedeutungen | Artikel | None = None):
+                          schema: Artikel | None = None):
         """Loads the OpenAI model."""
 
         from langchain_openai import ChatOpenAI
@@ -374,7 +374,7 @@ class WboeLoadModels(BaseModel):
             logfire.info("Error accessing LLM response")
             return ""
 
-    def generate_openai(self) -> tuple[Artikel | ListeAllerBedeutungen | dict ]:
+    def generate_openai(self) -> tuple[Artikel | dict ]:
         """Generates a response using the OpenAI LLM."""
         model = self.model
         conversation_messages: list[dict[str, str]] = self.conversation_messages
@@ -909,9 +909,7 @@ class WboeLoadModels(BaseModel):
                     
                 schema = None
                 logfire.info("11: Generating response...")
-                if i == 1:
-                    schema = ListeAllerBedeutungen
-                elif i == 2:
+                if i == 2:
                     schema = Artikel
 
                 try:
